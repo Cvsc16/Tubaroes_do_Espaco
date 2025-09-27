@@ -1,0 +1,15 @@
+
+earthaccess
+xarray
+netCDF4
+rasterio
+rioxarray
+numpy
+pandas
+scikit-learn
+xgboost
+matplotlib
+geopandas
+shapely
+pyproj
+rio-cogeo

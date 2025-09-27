@@ -1,0 +1,33 @@
+
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tubarões do Espaço – Hotspots</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    .legend { background: white; padding: 8px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([33, -70], 4);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 8
+    }).addTo(map);
+
+    const legend = L.control({position: 'bottomright'});
+    legend.onAdd = () => {
+      const div = L.DomUtil.create('div','legend');
+      div.innerHTML = '<b>Hotspots (probabilidade)</b><br>Gerar via scripts/05_export_tiles.py';
+      return div;
+    };
+    legend.addTo(map);
+  </script>
+</body>
+</html>

@@ -1,15 +1,20 @@
-
-earthaccess
-xarray
-netCDF4
-rasterio
-rioxarray
+# Core
 numpy
 pandas
+xarray
+scipy
+
+# Machine Learning
 scikit-learn
 xgboost
+
+# Visualização
 matplotlib
-geopandas
-shapely
-pyproj
-rio-cogeo
+seaborn
+plotly
+
+# NASA / Earthdata
+earthaccess
+
+# Extra
+pyyaml

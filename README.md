@@ -84,13 +84,52 @@ Tubaroes_do_Espaco/
 
 ## 🧑‍💻 O que cada script faz
 
-- **01_search_download.py** → Faz login no **Earthdata**, busca datasets e baixa arquivos (`data/raw/`).  
-- **02_preprocess.py** → Pré-processa (recorte + gradiente de temperatura), salva em `data/processed/`.  
-- **03_feature_engineering.py** → Converte dados em **tabela tabular** (`.csv/.parquet`).  
-- **04_train_model.py** → Treina modelos de predição de habitats (baseline e ML avançado).  
-- **05_export_tiles.py** → Exporta resultados em mapas/tiles para web.  
-- **check_processed.py** → Pré-visualização em PNG (SST e gradiente).  
-- **check_processed_interactive.py** → Versão interativa em HTML (zoom/pan no navegador).  
+- **01_search_download.py**  
+  Faz login no **Earthdata**, busca datasets da NASA e baixa os arquivos para `data/raw/`.  
+  ✅ Já funcionando para SST MUR (temperatura da superfície).
+
+- **02_preprocess.py**  
+  Lê arquivos de `data/raw/`, recorta pela área de interesse (`bbox`) e calcula variáveis derivadas (ex: gradiente térmico → frentes oceânicas).  
+  Salva em `data/processed/`.
+
+- **03_feature_engineering.py**  
+  Converte dados processados em um dataset tabular (`.csv` ou `.parquet`) com variáveis ambientais por ponto (lat, lon, tempo).  
+  Esse dataset alimenta o modelo de machine learning.
+
+- **04_train_model.py**  
+  Treina modelos de predição de hotspots de tubarões.  
+  - Baseline: regressão logística  
+  - Principal: XGBoost ou Random Forest  
+  - Avaliação: AUC, PR, Hit@20%
+
+- **05_export_tiles.py**  
+  Exporta predições para mapas (GeoTIFF ou tiles web), para visualização em **Leaflet/MapLibre**.
+
+---
+
+## 🌍 Fontes Oficiais dos Dados
+
+Para garantir reprodutibilidade, aqui estão os pontos oficiais de acesso:
+
+- **🌡️ MUR SST (Sea Surface Temperature)**  
+  Dataset: *MUR-JPL-L4-GLOB-v4.1*  
+  [🔗 Navegar nos arquivos (PO.DAAC / Earthdata)](https://cmr.earthdata.nasa.gov/virtual-directory/collections/C1996881146-POCLOUD)  
+
+- **🌱 MODIS L3 Clorofila (Chlorophyll-a, NRT)**  
+  Dataset: *MODIS-Aqua Level 3 Chl-a*  
+  🔗 [link oficial em breve]
+
+- **🌊 ECCO (correntes oceânicas u/v)**  
+  Dataset: *ECCO Ocean Circulation*  
+  🔗 [link oficial em breve]
+
+- **🔬 PACE OCI (Ocean Color Instrument)**  
+  Dataset: *PACE OCI*  
+  🔗 [link oficial em breve]
+
+- **📡 SWOT (Sea Surface Height)**  
+  Dataset: *SWOT L2/L3*  
+  🔗 [link oficial em breve]
 
 ---
 

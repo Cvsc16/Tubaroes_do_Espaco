@@ -1,48 +1,56 @@
-
 #!/usr/bin/env python3
-# Extrai features tabulares e cria presenças/pseudo-ausências (placeholder)
+"""
+Feature Engineering: converte arquivos NetCDF processados em tabelas tabulares
+com variáveis ambientais (SST, gradientes, etc.). Agora preserva a coluna de tempo
+quando disponível no NetCDF processado.
+"""
 
 from pathlib import Path
-import yaml, numpy as np, pandas as pd
-import rioxarray as rxr
-import geopandas as gpd
-from shapely.geometry import Point
+import pandas as pd
+import xarray as xr
 
 ROOT = Path(__file__).resolve().parents[1]
-CFG = yaml.safe_load(open(ROOT/"config"/"config.yaml"))
-PRO = ROOT/"data"/"processed"
-OUT = ROOT/"data"/"processed"
+PROC = ROOT / "data" / "processed"
+OUT = ROOT / "data" / "features"
+OUT.mkdir(parents=True, exist_ok=True)
 
-sst = rxr.open_rasterio(PRO/"sst_gradients.tif", masked=True).squeeze()
-chl = rxr.open_rasterio(PRO/"chlorophyll.tif", masked=True).squeeze()
 
-bbox = CFG["aoi"]["bbox"]
+def extract_features(nc_file: Path) -> pd.DataFrame:
+    """Extrai variáveis ambientais de um NetCDF processado em DataFrame tabular."""
+    print(f"📂 Lendo {nc_file} ...")
+    ds = xr.open_dataset(nc_file)
 
-def random_points(n=300):
-    xs = np.random.uniform(bbox[0], bbox[2], n)
-    ys = np.random.uniform(bbox[1], bbox[3], n)
-    return [Point(x,y) for x,y in zip(xs,ys)]
+    if not {"sst", "sst_gradient"}.issubset(ds.variables):
+        raise KeyError("Dataset processado precisa conter 'sst' e 'sst_gradient'")
 
-# TODO: substitua por trilhas reais
-presences = gpd.GeoDataFrame({"label":[1]*100}, geometry=random_points(100), crs="EPSG:4326")
-absences  = gpd.GeoDataFrame({"label":[0]*300}, geometry=random_points(300), crs="EPSG:4326")
+    # Converte para DataFrame preservando coordenadas (lat, lon e, se houver, time)
+    df = ds[["sst", "sst_gradient"]].to_dataframe().reset_index()
 
-def sample(da, gdf, name):
-    vals = []
-    for pt in gdf.geometry:
+    # Renomeia coluna 'time' para 'date' (data/hora) se existir
+    if "time" in df.columns:
+        df["date"] = pd.to_datetime(df["time"])  # mantém precisão temporal
+        df = df.drop(columns=["time"])
+    else:
+        # Fallback: tenta extrair data do nome do arquivo (frágil, mas útil)
+        date_str = nc_file.name.split("JPL")[0][:8]
         try:
-            val = float(da.sel(x=pt.x, y=pt.y, method="nearest").values)
+            df["date"] = pd.to_datetime(date_str, format="%Y%m%d")
         except Exception:
-            val = np.nan
-        vals.append(val)
-    gdf[name] = vals
-    return gdf
+            pass
 
-presences = sample(sst, presences, "sst")
-presences = sample(chl, presences, "chl")
-absences  = sample(sst, absences, "sst")
-absences  = sample(chl, absences, "chl")
+    return df
 
-df = pd.concat([presences.drop(columns="geometry"), absences.drop(columns="geometry")], ignore_index=True).dropna()
-df.to_csv(OUT/"dataset.csv", index=False)
-print("Dataset salvo em data/processed/dataset.csv")
+
+if __name__ == "__main__":
+    files = sorted(PROC.glob("*_proc.nc"))
+    if not files:
+        raise FileNotFoundError("Nenhum arquivo processado em data/processed/")
+
+    for f in files:
+        try:
+            df = extract_features(f)
+            out_csv = OUT / f"{f.stem.replace('_proc','')}_features.csv"
+            df.to_csv(out_csv, index=False)
+            print(f"✅ Features salvas em {out_csv} ({len(df)} linhas)")
+        except Exception as e:
+            print(f"⚠️ Falha ao processar {f}: {e}")

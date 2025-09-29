@@ -23,3 +23,5 @@ data/tiles/**
 # Credentials
 .netrc
 .env
+/data/compare
+/data/features

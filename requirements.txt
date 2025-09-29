@@ -1,20 +1,55 @@
-# Core
-numpy
-pandas
-xarray
-scipy
+# ======================================
+# 🦈 Tubarões do Espaço - Requisitos
+# NASA Space Apps Challenge 2025
+# ======================================
 
+# -------------------------------
+# Core científico e manipulação de dados
+# -------------------------------
+numpy              # Álgebra linear, vetores e matrizes
+pandas             # Estruturas tabulares (DataFrame)
+scipy              # Estatística, interpolação, filtros
+
+# -------------------------------
+# NetCDF / Xarray (dados NASA)
+# -------------------------------
+xarray[io]         # Manipulação de arrays multi-dimensionais + IO
+netcdf4            # Backend NetCDF para Xarray
+h5netcdf           # Backend HDF5 para NetCDF
+
+# -------------------------------
 # Machine Learning
-scikit-learn
-xgboost
+# -------------------------------
+scikit-learn       # Modelos de ML base (regressão, classificação, métricas)
+xgboost            # Algoritmo de boosting para predições mais robustas
 
+# -------------------------------
 # Visualização
-matplotlib
-seaborn
-plotly
+# -------------------------------
+matplotlib         # Gráficos básicos
+seaborn            # Visualização estatística
+plotly             # Visualizações interativas (HTML, Jupyter)
 
+# -------------------------------
 # NASA / Earthdata
-earthaccess
+# -------------------------------
+earthaccess        # Busca/download de dados NASA Earthdata
 
-# Extra
-pyyaml
+# -------------------------------
+# Configurações
+# -------------------------------
+pyyaml             # Ler arquivos config.yaml
+
+# -------------------------------
+# Mapas e dados geoespaciais
+# -------------------------------
+geopandas          # Dados geoespaciais (shapefiles, geometria)
+rasterio           # Leitura/escrita de GeoTIFF
+folium             # Mapas interativos leves em HTML
+
+# -------------------------------
+# Performance (opcional, recomendado p/ grandes dados)
+# -------------------------------
+dask               # Processamento paralelo para arrays e DataFrames grandes
+
+rioxarray          # Extens�o xarray para IO geoespacial (.rio)

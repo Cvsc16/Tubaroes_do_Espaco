@@ -1,36 +1,42 @@
-
 #!/usr/bin/env python3
-# Busca e download de dados NASA via earthaccess, com base em config.yaml
+"""Busca e download de dados NASA via earthaccess, guiado por config.yaml."""
 
-import os
 from pathlib import Path
 import yaml
-from earthaccess import login, search_data, DataGranule
+from earthaccess import login, search_data
 
-ROOT = Path(__file__).resolve().parents[1]
-CFG = yaml.safe_load(open(ROOT/"config"/"config.yaml"))
 
-OUT_RAW = ROOT/"data"/"raw"
+ROOT = Path(__file__).resolve().parents[2]
+CFG_PATH = ROOT / "config" / "config.yaml"
+
+CFG = yaml.safe_load(CFG_PATH.read_text(encoding="utf-8"))
+
+OUT_RAW = ROOT / "data" / "raw"
 OUT_RAW.mkdir(parents=True, exist_ok=True)
 
-bbox = CFG["aoi"]["bbox"]
-start = CFG["time"]["start"]
-end   = CFG["time"]["end"]
-maxn  = CFG["processing"]["max_granules_per_source"]
+AOI = CFG["aoi"]["bbox"]
+TIME_RANGE = (CFG["time"]["start"], CFG["time"]["end"])
+MAX_GRANULES = CFG["processing"]["max_granules_per_source"]
 
-def login_earthdata():
-    # Usa ~/.netrc; se não existir, pedirá credenciais
+
+def login_earthdata() -> None:
+    """Efetua login via arquivo ~/.netrc."""
+
     login(strategy="netrc")
 
-def find_and_download(short_name=None, keywords=None, collection=None):
-    query = {}
+
+def find_and_download(*, short_name: str | None = None, keywords: list[str] | None = None,
+                      collection: str | None = None) -> None:
+    """Executa a busca e baixa os granules retornados."""
+
+    query: dict[str, object] = {}
     if short_name:
         query["short_name"] = short_name
-    if bbox:
-        west, south, east, north = bbox
+    if AOI:
+        west, south, east, north = AOI
         query["bounding_box"] = (west, south, east, north)
-    if start and end:
-        query["temporal"] = (start, end)
+    if TIME_RANGE[0] and TIME_RANGE[1]:
+        query["temporal"] = TIME_RANGE
     if keywords:
         query["query"] = " ".join(keywords)
     if collection:
@@ -40,40 +46,27 @@ def find_and_download(short_name=None, keywords=None, collection=None):
     results = search_data(**query)
     if not results:
         print("Nenhum granule encontrado.")
-        return []
+        return
 
-    # Limite para protótipo
-    results = results[:maxn]
-    print(f"→ {len(results)} granules; baixando...")
+    limited = results[:MAX_GRANULES]
+    print(f"-> {len(limited)} granules encontrados; iniciando download...")
+
     import earthaccess
+
     try:
-        earthaccess.download(results, str(OUT_RAW))   # ✅ baixa todos de uma vez
-    except Exception as e:
-        print("Falha ao baixar resultados:", e)
-    return results
+        earthaccess.download(limited, str(OUT_RAW))
+    except Exception as exc:  # pragma: no cover - apenas logging
+        print(f"Falha ao baixar resultados: {exc}")
+
+
+def main() -> None:
+    login_earthdata()
+    find_and_download(short_name=CFG["datasets"]["sst_short_name"])
+    # Exemplos adicionais (descomentear conforme disponibilidade):
+    # find_and_download(short_name=CFG["datasets"]["modis_l3_chl_short_name"])
+    # find_and_download(keywords=CFG["datasets"]["pace_keywords"])
+    print("Concluido. Dados em data/raw/")
+
 
 if __name__ == "__main__":
-    login_earthdata()
-
-    # SST MUR
-    find_and_download(short_name=CFG["datasets"]["sst_short_name"])
-
-    # MODIS L3 CHL (NRT)
-    # find_and_download(short_name=CFG["datasets"]["modis_l3_chl_short_name"])
-
-    # # PACE OCI (busca por keywords)
-    # find_and_download(keywords=CFG["datasets"]["pace_keywords"])
-
-    # # ECCO u/v
-    # try:
-    #     find_and_download(short_name=CFG["datasets"]["ecco_short_name"])
-    # except Exception as e:
-    #     print("ECCO pode exigir subset via Harmony; prossiga com SST/Chl.", e)
-
-    # # SWOT
-    # try:
-    #     find_and_download(short_name=CFG["datasets"]["swot_short_name"])
-    # except Exception as e:
-    #     print("SWOT pode exigir autenticação/paths específicos; prossiga sem SWOT inicialmente.", e)
-
-    print("Concluído. Dados em data/raw/")
+    main()

@@ -1,33 +1,121 @@
-
 <!doctype html>
 <html lang="pt-br">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tubarões do Espaço – Hotspots</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <title>Tubaroes do Espaco - Hotspots</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    html, body, #map { height: 100%; margin: 0; }
-    .legend { background: white; padding: 8px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 100%; }
+    .panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 12px;
+      border-radius: 6px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      min-width: 240px;
+    }
+    .panel label { display: block; font-weight: bold; margin-bottom: 4px; }
+    .panel select, .panel button {
+      width: 100%;
+      padding: 6px;
+      margin-bottom: 6px;
+      border: 1px solid #999;
+      border-radius: 4px;
+    }
+    .legend {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 8px;
+      border-radius: 6px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      line-height: 1.3;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div class="panel">
+    <label for="tileSelect">Arquivo GeoTIFF</label>
+    <select id="tileSelect"></select>
+    <button id="toggleLayer" type="button">Alternar SST / Gradiente</button>
+    <p style="margin: 6px 0 0 0; font-size: 12px;">
+      Sirva este diretorio com <code>python -m http.server</code> e acesse <code>http://localhost:8000/app/index.html</code>.
+    </p>
+  </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/geotiff/dist-browser/geotiff.js"></script>
+  <script src="https://unpkg.com/plotty/build/plotty.min.js"></script>
+  <script src="https://unpkg.com/leaflet-geotiff/dist/leaflet-geotiff.min.js"></script>
+  <script src="https://unpkg.com/leaflet-geotiff/dist/leaflet-geotiff-plotty.min.js"></script>
   <script>
-    const map = L.map('map').setView([33, -70], 4);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 8
-    }).addTo(map);
+    const tiles = [
+      { label: '2025-08-15 09:00', url: '../data/tiles/hotspots_probability_2025-08-15T09-00-00.tif' },
+      { label: '2025-08-16 09:00', url: '../data/tiles/hotspots_probability_2025-08-16T09-00-00.tif' },
+      { label: '2025-08-17 09:00', url: '../data/tiles/hotspots_probability_2025-08-17T09-00-00.tif' },
+      { label: '2025-08-18 09:00', url: '../data/tiles/hotspots_probability_2025-08-18T09-00-00.tif' },
+      { label: '2025-08-19 09:00', url: '../data/tiles/hotspots_probability_2025-08-19T09-00-00.tif' },
+      { label: '2025-08-20 09:00', url: '../data/tiles/hotspots_probability_2025-08-20T09-00-00.tif' },
+      { label: '2025-08-21 09:00', url: '../data/tiles/hotspots_probability_2025-08-21T09-00-00.tif' },
+      { label: '2025-08-22 09:00', url: '../data/tiles/hotspots_probability_2025-08-22T09-00-00.tif' },
+      { label: '2025-08-23 09:00', url: '../data/tiles/hotspots_probability_2025-08-23T09-00-00.tif' }
+    ];
 
-    const legend = L.control({position: 'bottomright'});
+    const map = L.map('map').setView([33, -70], 4);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 8 }).addTo(map);
+
+    const legend = L.control({ position: 'bottomright' });
     legend.onAdd = () => {
-      const div = L.DomUtil.create('div','legend');
-      div.innerHTML = '<b>Hotspots (probabilidade)</b><br>Gerar via scripts/05_export_tiles.py';
+      const div = L.DomUtil.create('div', 'legend');
+      div.innerHTML = '<b>Hotspots (probabilidade)</b><br>Modelo XGBoost baseado em SST + gradiente.';
       return div;
     };
     legend.addTo(map);
+
+    const select = document.getElementById('tileSelect');
+    tiles.forEach(tile => {
+      const option = document.createElement('option');
+      option.value = tile.url;
+      option.textContent = tile.label;
+      select.appendChild(option);
+    });
+
+    let currentLayer = null;
+    let showingGradient = false;
+
+    function createLayer(url, colorScale) {
+      return L.leafletGeotiff(url, {
+        band: 0,
+        renderer: L.LeafletGeotiff.plotty({
+          colorScale,
+          displayMin: 0,
+          displayMax: 1
+        }),
+        clip: true
+      });
+    }
+
+    function updateLayer() {
+      const url = select.value;
+      if (currentLayer) {
+        map.removeLayer(currentLayer);
+      }
+      const colorScale = showingGradient ? 'inferno' : 'viridis';
+      currentLayer = createLayer(url, colorScale);
+      currentLayer.addTo(map);
+    }
+
+    select.addEventListener('change', updateLayer);
+    document.getElementById('toggleLayer').addEventListener('click', () => {
+      showingGradient = !showingGradient;
+      updateLayer();
+    });
+
+    updateLayer();
   </script>
 </body>
 </html>

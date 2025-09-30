@@ -5,12 +5,13 @@ aoi:
   bbox: [-80.0, 25.0, -60.0, 40.0]
 
 time:
-  start: "2025-09-20"
-  end:   "2025-09-25"
+  start: "2025-09-26"
+  end:   "2025-09-27"
 
 datasets:
   sst_short_name: "MUR-JPL-L4-GLOB-v4.1"   # GHRSST / MUR L4 (PO.DAAC)
   modis_l3_chl_short_name: "MODISA_L3m_CHL_NRT"  # Aqua MODIS L3 Mapped CHL (NRT)
+  modis_resolution: "4km"
   # PACE OCI L2 OC products variam; usaremos busca por palavras-chave:
   pace_keywords: ["PACE", "OCI", "L2", "ocean color", "chlorophyll", "biogeochemical"]
   ecco_short_name: "ECCO_L4_OCEAN_VEL_05DEG_DAILY_V4R4"  # Daily u/v currents (PO.DAAC)

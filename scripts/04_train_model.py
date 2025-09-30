@@ -63,7 +63,7 @@ PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 CFG = load_config()
 TOP_PERCENT = CFG.get("model", {}).get("top_percent_for_hit", 20)
-FEATURE_COLS = ["sst", "sst_gradient"]
+FEATURE_COLS = ["sst", "sst_gradient", "chlor_a"]
 
 
 def load_features() -> pd.DataFrame:
@@ -113,9 +113,12 @@ def apply_labels(df: pd.DataFrame, top_percent: float) -> pd.DataFrame:
 
 def prepare_dataset() -> pd.DataFrame:
     data = load_features()
+    if 'chlor_a' not in data.columns:
+        raise ValueError("Coluna 'chlor_a' ausente. Rode 01/02/03 para MODIS L3 CHL antes do treino.")
+
     data = data.dropna(subset=FEATURE_COLS)
     if data.empty:
-        raise ValueError("Sem dados validos (sst/sst_gradient) para treinar.")
+        raise ValueError("Sem dados validos (sst/sst_gradient/chlor_a) para treinar.")
 
     data = apply_labels(data, TOP_PERCENT)
     if data["label"].nunique() < 2:

@@ -116,22 +116,27 @@ def preprocess_file(file_path: Path) -> Path:
     print(f"Processando {file_path.name} ...")
 
     with xr.open_dataset(file_path) as ds:
-        if "analysed_sst" in ds.variables:
-            sst = ds["analysed_sst"].load()
-        elif "sst" in ds.variables:
-            sst = ds["sst"].load()
+        ds = ds.load()
+
+        if "analysed_sst" in ds.variables or "sst" in ds.variables:
+            var_name = "analysed_sst" if "analysed_sst" in ds.variables else "sst"
+            field = ds[var_name]
+            field = convert_to_celsius(field)
+            lat_name = detect_coordinate(field, LAT_CANDIDATES)
+            lon_name = detect_coordinate(field, LON_CANDIDATES)
+            field = clip_bbox(field, lat_name, lon_name)
+            grad = gradient_magnitude(field, lat_name, lon_name)
+            out = xr.Dataset({"sst": field, "sst_gradient": grad})
+        elif "chlor_a" in ds.variables:
+            field = ds["chlor_a"]
+            lat_name = detect_coordinate(field, LAT_CANDIDATES)
+            lon_name = detect_coordinate(field, LON_CANDIDATES)
+            field = clip_bbox(field, lat_name, lon_name)
+            field.attrs.setdefault("units", ds["chlor_a"].attrs.get("units", "mg m-3"))
+            out = xr.Dataset({"chlor_a": field})
         else:
-            raise ValueError("Variavel de SST nao encontrada no arquivo")
+            raise ValueError("Variavel reconhecida (SST ou chlor_a) nao encontrada no arquivo")
 
-    lat_name = detect_coordinate(sst, LAT_CANDIDATES)
-    lon_name = detect_coordinate(sst, LON_CANDIDATES)
-
-    sst = convert_to_celsius(sst)
-    sst = clip_bbox(sst, lat_name, lon_name)
-
-    grad = gradient_magnitude(sst, lat_name, lon_name)
-
-    out = xr.Dataset({"sst": sst, "sst_gradient": grad})
     out.attrs["source_file"] = file_path.name
     out.attrs["bbox"] = BBOX
 

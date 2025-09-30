@@ -44,3 +44,13 @@
 - 2025-09-30 - Atualizei config/config.yaml:1 para 2025-09-20→2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
 - 2025-09-30 - Ajustei scripts pipeline/visualizacao com fallback de sys.path e argumento --date em compare_probability_vs_truecolor.py:1 (sem ModuleNotFoundError).
 
+
+- 2025-09-30 — Integrei MODIS CHL: 01_search_download.py agora baixa clorofila, 02_preprocess.py processa chlor_a, 03_feature_engineering.py combina SST/gradiente/CHL e 05_export_tiles.py interpola CHL na hora da previsão.
+
+- 2025-09-30 — Ajustei config/config.yaml:1 para `max_granules_per_source = 1` a fim de evitar múltiplos granules MODIS por dia.
+
+- 2025-09-30 — Voltei `max_granules_per_source` para 10 e dedupei MODIS L3 CHL no download (um granule por dia via temporal).
+
+- 2025-09-30 — Ajustei deduplicação de MODIS L3 CHL usando `granule.filename`; se não houver `temporal`, gera chave pelo nome do arquivo.
+
+- 2025-09-30 — Ajustei config/config.yaml:1 para usar datas ISO (YYYY-MM-DDTHH:MM:SS) garantindo cobertura exata dos dias 26-27/set.

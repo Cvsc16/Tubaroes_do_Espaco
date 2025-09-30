@@ -7,7 +7,9 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.utils import project_root
+
+ROOT = project_root()
 FEAT = ROOT / "data" / "features"
 OUT  = ROOT / "data" / "viz"
 OUT.mkdir(parents=True, exist_ok=True)

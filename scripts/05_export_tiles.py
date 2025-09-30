@@ -39,11 +39,9 @@ def prepare_slice(ds: xr.Dataset, time_index: int | None):
         if coord not in sst.coords:
             raise KeyError(f"Coordenada '{coord}' nao encontrada em {ds}")
 
-    if sst["lat"].values[0] > sst["lat"].values[-1]:
-        sst = sst.sortby("lat")
-        grad = grad.sortby("lat")
-    if sst["lon"].values[0] > sst["lon"].values[-1]:
-        sst = sst.sortby("lon")
+    if sst["lat"].values[0] < sst["lat"].values[-1]:
+        sst = sst.sortby("lat", ascending=False)
+        grad = grad.sortby("lat", ascending=False)
         grad = grad.sortby("lon")
 
     return sst, grad
@@ -87,3 +85,5 @@ for nc_path in PROC_FILES:
             out_path = TILES_DIR / f"hotspots_probability_{safe_timestamp}.tif"
             proba_da.rio.to_raster(out_path, dtype="float32")
             print(f"Tile salvo em {out_path}")
+
+

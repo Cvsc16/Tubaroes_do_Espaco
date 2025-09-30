@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
 Feature Engineering: converte arquivos NetCDF processados em tabelas tabulares
-com variáveis ambientais (SST, gradientes, etc.). Agora preserva a coluna de tempo
-quando disponível no NetCDF processado.
+com variaveis ambientais (SST, gradientes, etc.). Agora preserva a coluna de tempo
+quando disponivel no NetCDF processado.
 """
 
 from pathlib import Path
+
+from scripts.utils import project_root
 import pandas as pd
 import xarray as xr
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 PROC = ROOT / "data" / "processed"
 OUT = ROOT / "data" / "features"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -28,10 +30,10 @@ def extract_features(nc_file: Path) -> pd.DataFrame:
 
     # Renomeia coluna 'time' para 'date' (data/hora) se existir
     if "time" in df.columns:
-        df["date"] = pd.to_datetime(df["time"])  # mantém precisão temporal
+        df["date"] = pd.to_datetime(df["time"])  # mantem precisao temporal
         df = df.drop(columns=["time"])
     else:
-        # Fallback: tenta extrair data do nome do arquivo (frágil, mas útil)
+        # Fallback: tenta extrair data do nome do arquivo (fragil, mas util)
         date_str = nc_file.name.split("JPL")[0][:8]
         try:
             df["date"] = pd.to_datetime(date_str, format="%Y%m%d")

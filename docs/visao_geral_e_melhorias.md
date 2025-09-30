@@ -4,6 +4,18 @@ Este documento resume, de forma pratica, o que o projeto faz hoje, como a pipeli
 
 ---
 
+## Atualizacoes recentes (2025-09-30)
+
+- Padronizei scripts para usar `scripts.utils` (load_config/project_root) e evitar caminhos relativos duplicados.
+- Reescrevi `scripts/02_preprocess.py:1` preservando a dimensao `time`, gradiente com `xr.apply_ufunc` e metadados de bbox.
+- Atualizei `requirements.txt:1` em ASCII e inclui `requests`, `pillow`, `cartopy` e `joblib`.
+- Criei `scripts/utils/build_tiles_manifest.py:1` para gerar `data/tiles/tiles_manifest.json` e alimentar o app.
+- Ajustei `app/index.html:1` para carregar tiles dinamicamente e lidar com ausencia de GeoTIFFs.
+- Convertei os briefs para Markdown (`docs/desafio_projeto.md:1`, `docs/recursos_projeto.md:1`).
+- Criei `guia_equipa_tubaroes.md:1` como explicacao nao tecnica para a equipe.
+
+---
+
 ## Atualizacoes recentes (2025-09-29)
 
 - Criei `scripts/utils_config.py:1` para centralizar o carregamento de `config/config.yaml`.

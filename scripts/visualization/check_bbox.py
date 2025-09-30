@@ -2,15 +2,16 @@
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import yaml
-from pathlib import Path
 
-# Lê bbox direto do config.yaml
-ROOT = Path(__file__).resolve().parents[1]
-CFG = yaml.safe_load(open(ROOT/"config"/"config.yaml"))
 
-bbox = CFG["aoi"]["bbox"]
-west, south, east, north = bbox
+from scripts.utils import get_bbox, load_config, project_root
+
+# Le BBOX direto do config.yaml
+ROOT = project_root()
+CFG = load_config()
+
+BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
+west, south, east, north = BBOX
 
 # Criar figura
 fig = plt.figure(figsize=(8,6))
@@ -26,7 +27,7 @@ ax.gridlines(draw_labels=True)
 # Define limites do mapa
 ax.set_extent([west-10, east+10, south-10, north+10])
 
-# Desenha o retângulo da bbox
+# Desenha o ret??ngulo da BBOX
 ax.plot(
     [west, east, east, west, west],
     [south, south, north, north, south],
@@ -34,5 +35,5 @@ ax.plot(
 )
 
 plt.title("Bounding Box de Recorte", fontsize=14)
-plt.savefig(ROOT/"data"/"bbox_preview.png", dpi=150)
+plt.savefig(ROOT/"data"/"BBOX_preview.png", dpi=150)
 plt.show()

@@ -34,6 +34,11 @@
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
       line-height: 1.3;
     }
+    .legend-gradient {
+      height: 20px;
+      width: 100%;
+      margin: 5px 0;
+    }
   </style>
 </head>
 <body>
@@ -41,29 +46,29 @@
   <div class="panel">
     <label for="tileSelect">Arquivo GeoTIFF</label>
     <select id="tileSelect"></select>
-    <button id="toggleLayer" type="button">Alternar SST / Gradiente</button>
+    <button id="toggleLayer" type="button">Alternar Escala de Cores</button>
     <p style="margin: 6px 0 0 0; font-size: 12px;">
       Sirva este diretorio com <code>python -m http.server</code> e acesse <code>http://localhost:8000/app/index.html</code>.
     </p>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/geotiff/dist-browser/geotiff.js"></script>
-  <script src="https://unpkg.com/plotty/build/plotty.min.js"></script>
-  <script src="https://unpkg.com/leaflet-geotiff/dist/leaflet-geotiff.min.js"></script>
-  <script src="https://unpkg.com/leaflet-geotiff/dist/leaflet-geotiff-plotty.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/geotiff@2.0.7/dist-browser/geotiff.js"></script>
+  <script src="https://unpkg.com/plotty@0.4.4/dist/plotty.min.js"></script>
   <script>
-    const tiles = [
-      { label: '2025-08-15 09:00', url: '../data/tiles/hotspots_probability_2025-08-15T09-00-00.tif' },
-      { label: '2025-08-16 09:00', url: '../data/tiles/hotspots_probability_2025-08-16T09-00-00.tif' },
-      { label: '2025-08-17 09:00', url: '../data/tiles/hotspots_probability_2025-08-17T09-00-00.tif' },
-      { label: '2025-08-18 09:00', url: '../data/tiles/hotspots_probability_2025-08-18T09-00-00.tif' },
-      { label: '2025-08-19 09:00', url: '../data/tiles/hotspots_probability_2025-08-19T09-00-00.tif' },
-      { label: '2025-08-20 09:00', url: '../data/tiles/hotspots_probability_2025-08-20T09-00-00.tif' },
-      { label: '2025-08-21 09:00', url: '../data/tiles/hotspots_probability_2025-08-21T09-00-00.tif' },
-      { label: '2025-08-22 09:00', url: '../data/tiles/hotspots_probability_2025-08-22T09-00-00.tif' },
-      { label: '2025-08-23 09:00', url: '../data/tiles/hotspots_probability_2025-08-23T09-00-00.tif' }
-    ];
+    async function loadManifest() {
+      try {
+        const response = await fetch('../data/tiles/tiles_manifest.json', { cache: 'no-cache' });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        return Array.isArray(payload) ? payload : [];
+      } catch (err) {
+        console.warn('Manifesto nao encontrado ou invalido.', err);
+        return [];
+      }
+    }
 
     const map = L.map('map').setView([33, -70], 4);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 8 }).addTo(map);
@@ -71,51 +76,131 @@
     const legend = L.control({ position: 'bottomright' });
     legend.onAdd = () => {
       const div = L.DomUtil.create('div', 'legend');
-      div.innerHTML = '<b>Hotspots (probabilidade)</b><br>Modelo XGBoost baseado em SST + gradiente.';
+      div.innerHTML = '<b>Hotspots (probabilidade)</b><br><canvas class="legend-gradient" id="legendCanvas"></canvas><div style="display:flex;justify-content:space-between;font-size:11px;"><span>0.0</span><span>1.0</span></div>Modelo XGBoost baseado em SST + gradiente.';
       return div;
     };
     legend.addTo(map);
 
     const select = document.getElementById('tileSelect');
-    tiles.forEach(tile => {
-      const option = document.createElement('option');
-      option.value = tile.url;
-      option.textContent = tile.label;
-      select.appendChild(option);
-    });
-
+    const toggleButton = document.getElementById('toggleLayer');
     let currentLayer = null;
-    let showingGradient = false;
+    let currentColorScale = 'viridis';
 
-    function createLayer(url, colorScale) {
-      return L.leafletGeotiff(url, {
-        band: 0,
-        renderer: L.LeafletGeotiff.plotty({
-          colorScale,
-          displayMin: 0,
-          displayMax: 1
-        }),
-        clip: true
-      });
+    function updateLegend() {
+      setTimeout(() => {
+        const canvas = document.getElementById('legendCanvas');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.offsetWidth;
+        canvas.height = 20;
+        
+        const plot = new plotty.plot({
+          canvas: canvas,
+          data: new Float32Array(canvas.width).map((_, i) => i / canvas.width),
+          width: canvas.width,
+          height: 1,
+          domain: [0, 1],
+          colorScale: currentColorScale
+        });
+        plot.render();
+      }, 100);
     }
 
-    function updateLayer() {
+    async function createLayer(url, colorScale) {
+      if (!url) return null;
+
+      try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+        const image = await tiff.getImage();
+        const rasters = await image.readRasters();
+        const data = rasters[0];
+        
+        const [x1, y1, x2, y2] = image.getBoundingBox();
+        const width = image.getWidth();
+        const height = image.getHeight();
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const plot = new plotty.plot({
+          canvas: canvas,
+          data: data,
+          width: width,
+          height: height,
+          domain: [0, 1],
+          colorScale: colorScale,
+          clampLow: false,
+          clampHigh: false
+        });
+        plot.render();
+
+        const bounds = [[y2, x1], [y1, x2]];
+        
+        return L.imageOverlay(canvas.toDataURL(), bounds, {
+          opacity: 0.7,
+          interactive: false
+        });
+      } catch (err) {
+        console.error('Erro ao carregar GeoTIFF:', err);
+        return null;
+      }
+    }
+
+    async function updateLayer() {
       const url = select.value;
+      if (!url) {
+        if (currentLayer) {
+          map.removeLayer(currentLayer);
+          currentLayer = null;
+        }
+        return;
+      }
+
       if (currentLayer) {
         map.removeLayer(currentLayer);
       }
-      const colorScale = showingGradient ? 'inferno' : 'viridis';
-      currentLayer = createLayer(url, colorScale);
-      currentLayer.addTo(map);
+
+      currentLayer = await createLayer(url, currentColorScale);
+      if (currentLayer) {
+        currentLayer.addTo(map);
+      }
     }
 
     select.addEventListener('change', updateLayer);
-    document.getElementById('toggleLayer').addEventListener('click', () => {
-      showingGradient = !showingGradient;
+    toggleButton.addEventListener('click', () => {
+      currentColorScale = currentColorScale === 'viridis' ? 'inferno' : 'viridis';
+      updateLegend();
       updateLayer();
     });
 
-    updateLayer();
+    async function bootstrap() {
+      const tiles = await loadManifest();
+      if (!tiles.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Nenhum GeoTIFF encontrado';
+        select.appendChild(option);
+        select.disabled = true;
+        toggleButton.disabled = true;
+        return;
+      }
+
+      tiles.forEach(tile => {
+        const option = document.createElement('option');
+        option.value = tile.url;
+        option.textContent = tile.label;
+        select.appendChild(option);
+      });
+
+      updateLegend();
+      updateLayer();
+    }
+
+    bootstrap();
   </script>
 </body>
 </html>

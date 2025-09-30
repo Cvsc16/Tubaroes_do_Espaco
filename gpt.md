@@ -37,3 +37,6 @@
 - 2025-09-29 — Reescrevi scripts/compare_probability_vs_truecolor_interactive.py:1 com argumento --date (um dia) e MODIS reduzido para 512px, gerando HTML leve.
 
 - 2025-09-29 — Ajustei dashboard interativo (colwidths e largura) para legendas não sobreporem os mapas.
+- 2025-09-30 - Normalizei imports para `scripts.utils`, reescrevi `scripts/02_preprocess.py:1`, atualizei `requirements.txt:1`, criei `scripts/utils/build_tiles_manifest.py:1` e ajustei `app/index.html:1` para manifest dinamico.
+- 2025-09-30 - Adicionei `guia_equipa_tubaroes.md:1` para orientar a equipe nao tecnica sobre o fluxo e entregaveis.
+- 2025-09-30 - Convertei os briefs para Markdown (`docs/desafio_projeto.md:1`, `docs/recursos_projeto.md:1`) e atualizei referencias.

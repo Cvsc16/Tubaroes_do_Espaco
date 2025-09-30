@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
-"""
-Comparação MODIS True Color vs SST MUR
-"""
+"""Comparacao MODIS True Color vs SST MUR"""
 
 import datetime
+import io
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 import requests
 from PIL import Image
-import io
-import matplotlib.pyplot as plt
-import yaml
 import xarray as xr
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.utils import get_BBOX, load_config, project_root
+
+ROOT = project_root()
 RAW = ROOT / "data" / "raw"
 PROC = ROOT / "data" / "processed"
 OUT = ROOT / "data" / "compare"
 OUT.mkdir(parents=True, exist_ok=True)
 
-CFG = yaml.safe_load(open(ROOT/"config"/"config.yaml"))
-bbox = CFG["aoi"]["bbox"]  # [west, south, east, north]
+CFG = load_config()
+BBOX = get_BBOX(CFG) or [-80.0, 25.0, -60.0, 40.0]
+
 
 def download_modis_truecolor(date: str, out_file: Path):
     """
@@ -34,7 +35,7 @@ def download_modis_truecolor(date: str, out_file: Path):
         "LAYERS": layer,
         "STYLES": "",
         "FORMAT": "image/jpeg",
-        "BBOX": ",".join(map(str, bbox)),
+        "BBOX": ",".join(map(str, BBOX)),
         "WIDTH": 1024,
         "HEIGHT": 1024,
         "SRS": "EPSG:4326",

@@ -7,7 +7,11 @@
 - Salva dataset agregado, modelo e metricas em data/processed/
 """
 
+from __future__ import annotations
+
+import sys
 from pathlib import Path
+
 import json
 import numpy as np
 import pandas as pd
@@ -15,14 +19,20 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score
 import joblib
 
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 try:
     import xgboost as xgb
     HAVE_XGB = True
 except ImportError:  # fallback leve caso xgboost nao esteja disponivel
     from sklearn.ensemble import GradientBoostingClassifier as SkGradientBoosting
     HAVE_XGB = False
+except ImportError:  # fallback leve caso xgboost nao esteja disponivel
+    from sklearn.ensemble import GradientBoostingClassifier as SkGradientBoosting
+    HAVE_XGB = False
 
-from utils_config import load_config
+from scripts.utils import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 FEATURES_DIR = ROOT / "data" / "features"

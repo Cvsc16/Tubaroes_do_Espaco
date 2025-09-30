@@ -15,9 +15,9 @@ import requests
 import xarray as xr
 from PIL import Image
 
-from utils_config import get_bbox, load_config
+from scripts.utils import get_bbox, load_config, project_root
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 PROC = ROOT / "data" / "processed"
 OUT = ROOT / "data" / "compare"
 OUT.mkdir(parents=True, exist_ok=True)

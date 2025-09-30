@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera comparações MODIS True Color vs SST vs probabilidade (GeoTIFF)."""
+"""Gera comparacoes MODIS True Color vs SST vs probabilidade (GeoTIFF)."""
 
 from pathlib import Path
 import datetime as dt
@@ -7,21 +7,22 @@ import io
 
 import matplotlib.pyplot as plt
 import numpy as np
-import rioxarray as rxr
 import requests
+import rioxarray as rxr
 import xarray as xr
-import yaml
 from PIL import Image
 
+from scripts.utils import get_bbox, load_config, project_root
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 PROC_DIR = ROOT / "data" / "processed"
 TILES_DIR = ROOT / "data" / "tiles"
 OUT_DIR = ROOT / "data" / "compare"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-CFG = yaml.safe_load(open(ROOT / "config" / "config.yaml", "r", encoding="utf-8"))
-BBOX = CFG["aoi"]["bbox"]
+CFG = load_config()
+BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
+
 
 
 def download_modis(date_iso: str, out_file: Path, size: int = 1024) -> Path:

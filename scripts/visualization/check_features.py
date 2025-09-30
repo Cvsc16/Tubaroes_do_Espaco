@@ -5,6 +5,19 @@ Inspeção rápida dos dados de features
 
 import pandas as pd
 from pathlib import Path
+import sys
+
+_THIS_FILE = Path(__file__).resolve()
+for _parent in _THIS_FILE.parents:
+    if _parent.name == "scripts":
+        _PROJECT_ROOT_FALLBACK = _parent.parent
+        break
+else:
+    _PROJECT_ROOT_FALLBACK = _THIS_FILE.parent
+
+if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FEAT = ROOT / "data" / "features"

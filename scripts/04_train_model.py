@@ -9,8 +9,27 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
+
+_THIS_FILE = Path(__file__).resolve()
+for _parent in _THIS_FILE.parents:
+    if _parent.name == "scripts":
+        _PROJECT_ROOT_FALLBACK = _parent.parent
+        break
+else:
+    _PROJECT_ROOT_FALLBACK = _THIS_FILE.parent
+
+if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
+
+import sys
+
+THIS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT_FALLBACK = THIS_DIR.parent
+if str(PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT_FALLBACK))
+
 
 import json
 import numpy as np
@@ -32,7 +51,10 @@ except ImportError:  # fallback leve caso xgboost nao esteja disponivel
     from sklearn.ensemble import GradientBoostingClassifier as SkGradientBoosting
     HAVE_XGB = False
 
-from scripts.utils import load_config
+try:
+    from scripts.utils import load_config
+except ModuleNotFoundError:
+    from utils_config import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 FEATURES_DIR = ROOT / "data" / "features"
@@ -155,3 +177,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

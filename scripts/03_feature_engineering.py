@@ -6,8 +6,17 @@ quando disponivel no NetCDF processado.
 """
 
 from pathlib import Path
+import sys
 
-from scripts.utils import project_root
+THIS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT_FALLBACK = THIS_DIR.parent
+if str(PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT_FALLBACK))
+
+try:
+    from scripts.utils import project_root
+except ModuleNotFoundError:
+    from utils_config import project_root
 import pandas as pd
 import xarray as xr
 
@@ -19,7 +28,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 def extract_features(nc_file: Path) -> pd.DataFrame:
     """Extrai variáveis ambientais de um NetCDF processado em DataFrame tabular."""
-    print(f"📂 Lendo {nc_file} ...")
+    print(f"[features] Lendo {nc_file} ...")
     ds = xr.open_dataset(nc_file)
 
     if not {"sst", "sst_gradient"}.issubset(ds.variables):
@@ -53,6 +62,11 @@ if __name__ == "__main__":
             df = extract_features(f)
             out_csv = OUT / f"{f.stem.replace('_proc','')}_features.csv"
             df.to_csv(out_csv, index=False)
-            print(f"✅ Features salvas em {out_csv} ({len(df)} linhas)")
+            print(f"[features] Salvo {out_csv} ({len(df)} linhas)")
         except Exception as e:
-            print(f"⚠️ Falha ao processar {f}: {e}")
+            print(f"[features] Falha ao processar {f}: {e}")
+
+
+
+
+

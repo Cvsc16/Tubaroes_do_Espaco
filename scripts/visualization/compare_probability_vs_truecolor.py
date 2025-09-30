@@ -2,6 +2,27 @@
 """Gera comparacoes MODIS True Color vs SST vs probabilidade (GeoTIFF)."""
 
 from pathlib import Path
+import sys
+
+_THIS_FILE = Path(__file__).resolve()
+for _parent in _THIS_FILE.parents:
+    if _parent.name == "scripts":
+        _PROJECT_ROOT_FALLBACK = _parent.parent
+        break
+else:
+    _PROJECT_ROOT_FALLBACK = _THIS_FILE.parent
+
+if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
+
+import sys
+import argparse
+
+THIS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT_FALLBACK = THIS_DIR.parent.parent
+if str(PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT_FALLBACK))
+
 import datetime as dt
 import io
 
@@ -130,13 +151,26 @@ def plot_comparison(nc_path: Path):
     print(f"Figura salva em {out_png}")
 
 
-if __name__ == "__main__":
+def main(target_date: str | None = None) -> None:
     files = sorted(PROC_DIR.glob("*_proc.nc"))
     if not files:
-        raise FileNotFoundError("Nenhum arquivo processado encontrado. Rode 02_preprocess.py.")
+        raise FileNotFoundError('Nenhum arquivo processado encontrado. Rode 02_preprocess.py.')
+
+    if target_date:
+        target_str = target_date.replace('-', '')
+        files = [f for f in files if f.name.startswith(target_str)]
+        if not files:
+            raise FileNotFoundError(f'Nenhum arquivo processado para a data {target_date}.')
 
     for nc_file in files:
         try:
             plot_comparison(nc_file)
         except Exception as exc:
-            print(f"Falha em {nc_file.name}: {exc}")
+            print(f'[compare] Falha em {nc_file.name}: {exc}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Compara MODIS, SST e probabilidade (GeoTIFF).')
+    parser.add_argument('--date', help='Data alvo no formato YYYY-MM-DD (opcional).')
+    args = parser.parse_args()
+    main(args.date)

@@ -8,7 +8,6 @@ Este arquivo ajuda quem nao programa a entender como nossa solucao atende ao des
 - Propor um conceito de tag inteligente capaz de indicar onde o tubarao esta, o que ele come e enviar dados quase em tempo real.
 
 Resumo oficial em ``docs/desafio_projeto.md``.
-Resumo oficial em `docs/desafio_projeto.md`.
 ## 2. Nossa resposta em poucas palavras
 - Zona foco: Corrente do Golfo e Mar dos Sargacos.
 - Integramos temperatura da agua, produtividade biologica e correntes para mapear hotspots de alimentacao.

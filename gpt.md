@@ -1,4 +1,4 @@
-# GPT Notes â€” TubarÃµes do EspaÃ§o
+ï»¿# GPT Notes â€” TubarÃµes do EspaÃ§o
 
 ## VisÃ£o Atual do Projeto
 - Objetivo central: mapear hotspots de alimentaÃ§Ã£o de tubarÃµes combinando dados de satÃ©lite NASA, engenharia de features e ML para suporte Ã  conservaÃ§Ã£o.
@@ -14,29 +14,33 @@
 > Sempre que novas modificaÃ§Ãµes forem feitas, documentar aqui com data, resumo e arquivos tocados.
 
 
-- 2025-09-29 — Atualizei docs/visao_geral_e_melhorias.md:1 com resumo das mudancas recentes e novas prioridades.
+- 2025-09-29 ï¿½ Atualizei docs/visao_geral_e_melhorias.md:1 com resumo das mudancas recentes e novas prioridades.
 
-- 2025-09-29 — Atualizei scripts/04_train_model.py:1 para consolidar features, rotular hotspots e treinar o modelo; scripts/05_export_tiles.py:1 agora gera GeoTIFFs direto dos NetCDF; revisei docs/visao_geral_e_melhorias.md:1 com o novo fluxo.
+- 2025-09-29 ï¿½ Atualizei scripts/04_train_model.py:1 para consolidar features, rotular hotspots e treinar o modelo; scripts/05_export_tiles.py:1 agora gera GeoTIFFs direto dos NetCDF; revisei docs/visao_geral_e_melhorias.md:1 com o novo fluxo.
 
-- 2025-09-29 — Otimizei scripts/compare_side_by_side_slider.py:1 reduzindo resolução MODIS e reamostrando os grids (HTML bem menor).
+- 2025-09-29 ï¿½ Otimizei scripts/compare_side_by_side_slider.py:1 reduzindo resoluï¿½ï¿½o MODIS e reamostrando os grids (HTML bem menor).
 
-- 2025-09-29 — Reescrevi scripts/compare_side_by_side_slider.py:1 inteiro em ASCII para evitar erros de encoding, mantendo as otimizações.
+- 2025-09-29 ï¿½ Reescrevi scripts/compare_side_by_side_slider.py:1 inteiro em ASCII para evitar erros de encoding, mantendo as otimizaï¿½ï¿½es.
 
-- 2025-09-29 — Reimplementei scripts/compare_side_by_side_slider.py:1 com subplots (go.Image + Heatmap) e slider, replicando o visual do compare_modis_truecolor para todas as datas.
+- 2025-09-29 ï¿½ Reimplementei scripts/compare_side_by_side_slider.py:1 com subplots (go.Image + Heatmap) e slider, replicando o visual do compare_modis_truecolor para todas as datas.
 
-- 2025-09-29 — Incluí rioxarray em requirements.txt:1 para suportar scripts/05_export_tiles.py.
+- 2025-09-29 ï¿½ Incluï¿½ rioxarray em requirements.txt:1 para suportar scripts/05_export_tiles.py.
 
-- 2025-09-29 — Ajustei scripts/05_export_tiles.py:1 para usar dimensões y/x e sanitizar timestamps (sem dois-pontos) antes de gravar GeoTIFF.
+- 2025-09-29 ï¿½ Ajustei scripts/05_export_tiles.py:1 para usar dimensï¿½es y/x e sanitizar timestamps (sem dois-pontos) antes de gravar GeoTIFF.
 
-- 2025-09-29 — Atualizei app/index.html para carregar GeoTIFFs com leaflet-geotiff (dropdown + toggle SST/Gradiente).
+- 2025-09-29 ï¿½ Atualizei app/index.html para carregar GeoTIFFs com leaflet-geotiff (dropdown + toggle SST/Gradiente).
 
-- 2025-09-29 — Adicionei scripts/compare_probability_vs_truecolor.py:1 para comparar MODIS, SST e os GeoTIFFs gerados.
+- 2025-09-29 ï¿½ Adicionei scripts/compare_probability_vs_truecolor.py:1 para comparar MODIS, SST e os GeoTIFFs gerados.
 
-- 2025-09-29 — Criei scripts/compare_probability_vs_truecolor_interactive.py:1 para gerar dashboard Plotly com MODIS/SST/gradiente/probabilidade (hover interativo).
+- 2025-09-29 ï¿½ Criei scripts/compare_probability_vs_truecolor_interactive.py:1 para gerar dashboard Plotly com MODIS/SST/gradiente/probabilidade (hover interativo).
 
-- 2025-09-29 — Reescrevi scripts/compare_probability_vs_truecolor_interactive.py:1 com argumento --date (um dia) e MODIS reduzido para 512px, gerando HTML leve.
+- 2025-09-29 ï¿½ Reescrevi scripts/compare_probability_vs_truecolor_interactive.py:1 com argumento --date (um dia) e MODIS reduzido para 512px, gerando HTML leve.
 
-- 2025-09-29 — Ajustei dashboard interativo (colwidths e largura) para legendas não sobreporem os mapas.
+- 2025-09-29 ï¿½ Ajustei dashboard interativo (colwidths e largura) para legendas nï¿½o sobreporem os mapas.
 - 2025-09-30 - Normalizei imports para `scripts.utils`, reescrevi `scripts/02_preprocess.py:1`, atualizei `requirements.txt:1`, criei `scripts/utils/build_tiles_manifest.py:1` e ajustei `app/index.html:1` para manifest dinamico.
 - 2025-09-30 - Adicionei `guia_equipa_tubaroes.md:1` para orientar a equipe nao tecnica sobre o fluxo e entregaveis.
 - 2025-09-30 - Convertei os briefs para Markdown (`docs/desafio_projeto.md:1`, `docs/recursos_projeto.md:1`) e atualizei referencias.
+
+- 2025-09-30 - Atualizei config/config.yaml:1 para 2025-09-20â†’2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
+- 2025-09-30 - Ajustei scripts pipeline/visualizacao com fallback de sys.path e argumento --date em compare_probability_vs_truecolor.py:1 (sem ModuleNotFoundError).
+

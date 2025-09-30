@@ -26,38 +26,47 @@ Combinamos **ciência oceânica, inteligência artificial e novas tecnologias** 
 
 ---
 
-## 📂 Estrutura do Projeto
-
+## 🗂️ Estrutura principal
 ```
 Tubaroes_do_Espaco/
 │
-├── config/               # Configurações do projeto
-│   └── config.yaml       # Parâmetros gerais (bbox, datas, nomes de datasets)
+├── config/
+│   └── config.yaml                # BBox, janela temporal, datasets
 │
 ├── data/
-│   ├── raw/              # Dados brutos baixados da NASA (NetCDF .nc)
-│   ├── processed/        # Dados pré-processados (recorte, gradiente, etc.)
-│   └── features/         # Dados tabulares para ML (lat, lon, variáveis ambientais)
+│   ├── raw/                      # NetCDF brutos (MUR SST etc.)
+│   ├── processed/                # NetCDF recortados, dataset.csv, modelo, métricas
+│   ├── features/                 # CSVs tabulares para ML
+│   ├── tiles/                    # GeoTIFFs hotspots_probability_*.tif + tiles_manifest.json
+│   └── compare/                  # PNG/HTML para storytelling
 │
-├── scripts/              # Scripts principais da pipeline
-│   ├── 01_search_download.py     # Busca e download dos dados via earthaccess
-│   ├── 02_preprocess.py          # Pré-processamento: recorte + gradiente SST
-│   ├── 03_feature_engineering.py # Transformação em dataset tabular
-│   ├── 04_train_model.py         # Treinamento de modelo preditivo (ML)
-│   ├── 05_export_tiles.py        # Exportação em mapas/tiles para visualização
-│   ├── check_processed.py        # Pré-visualização em PNG
-│   └── check_processed_interactive.py # Visualização interativa em HTML
+├── scripts/
+│   ├── 01_search_download.py     # Download via earthaccess (usa config)
+│   ├── 02_preprocess.py          # Recorte + gradiente (preserva `time`)
+│   ├── 03_feature_engineering.py # Converte _proc.nc em lat/lon/date
+│   ├── 04_train_model.py         # Agrega features, rotula hotspots e treina XGBoost
+│   ├── 05_export_tiles.py        # Aplica o modelo e gera GeoTIFFs
+│   ├── utils/                    # load_config, project_root, build_tiles_manifest.py
+│   └── visualization/            # Inspeções (PNG/HTML) e comparações MODIS × modelo (--date)
 │
-├── app/                  # (futuro) Web app interativo (Leaflet/MapLibre)
-│
-├── .venv/                # Ambiente virtual Python
-└── requirements.txt      # Dependências do projeto
+├── app/                          # Mapa Leaflet (dropdown carrega o manifest JSON)
+├── docs/                         # Briefing, visão geral e guia rápido da equipe
+└── tag/                          # Conceito de tag embarcada
 ```
+---
+
+## 🧰 Pipeline
+- **01_search_download.py** – faz login no Earthdata (`~/.netrc`) e baixa os granules conforme `config.yaml`.
+- **02_preprocess.py** – recorta pela bbox, converte SST para °C, calcula gradiente (mantém dimensão temporal) e salva `_proc.nc`.
+- **03_feature_engineering.py** – gera tabelas (lat, lon, date, sst, sst_gradient) em `data/features/`.
+- **04_train_model.py** – concatena as tabelas, rotula hotspots (top-N% gradiente por data), treina XGBoost e grava `dataset.csv`, `model_xgb.pkl`, `metrics.json`.
+- **05_export_tiles.py** – aplica o modelo a cada `_proc.nc` e exporta GeoTIFFs `hotspots_probability_*.tif` em `data/tiles/`.
+- **scripts/utils/build_tiles_manifest.py** – produz `data/tiles/tiles_manifest.json`, alimentando o app Leaflet.
+- **visualization/** – scripts para verificações rápidas (PNG/HTML) e comparações MODIS / SST / gradiente / probabilidade (incluindo dashboards interativos).
 
 ---
 
-## 📊 Comparação dos Conjuntos de Dados da NASA
-
+## 🛰️ Conjuntos de dados NASA
 | Dataset | Variável Principal | Resolução Espacial / Temporal | Por que é importante para tubarões? | Uso no modelo |
 |---------|-------------------|-------------------------------|--------------------------------------|---------------|
 | **SST (MUR)** | 🌡️ Temperatura da Superfície do Mar | ~1 km / diário | Define preferências térmicas e frentes oceânicas (hotspots de caça). | Base principal para identificar frentes térmicas. |
@@ -65,45 +74,6 @@ Tubaroes_do_Espaco/
 | **PACE OCI** | 🌈 Composição do fitoplâncton (cores do oceano) | ~1 km / diário | Diferencia tipos de plâncton (nutritivos vs tóxicos). | Enriquecimento do modelo, explicando qualidade da comida disponível. |
 | **ECCO (u/v correntes)** | 🌀 Correntes oceânicas (u/v) | ~10–20 km / horário-diário | Transporta nutrientes e presas; tubarões usam correntes para migração. | Adiciona dinâmica ao modelo (não só condição estática). |
 | **SWOT** | 🌊 Topografia da superfície / Redemoinhos | ~1 km / repetição 21 dias | Detecta estruturas de mesoescala (eddies) que concentram alimento. | Identifica hotspots estruturais que atraem predadores. |
-
----
-
-## 🌐 Cadeia Trófica e Relação com os Dados NASA
-
-```text
-🌱 Fitoplâncton (PACE / MODIS) 
-   ↓
-🐟 Peixes pequenos (transportados pelas correntes - ECCO) 
-   ↓
-🌀 Redemoinhos / frentes oceânicas (SWOT + gradiente SST)
-   ↓
-🦈 Tubarões (modelados via ML com base nessas variáveis)
-```
-
----
-
-## 🧑‍💻 O que cada script faz
-
-- **01_search_download.py**  
-  Faz login no **Earthdata**, busca datasets da NASA e baixa os arquivos para `data/raw/`.  
-  ✅ Já funcionando para SST MUR (temperatura da superfície).
-
-- **02_preprocess.py**  
-  Lê arquivos de `data/raw/`, recorta pela área de interesse (`bbox`) e calcula variáveis derivadas (ex: gradiente térmico → frentes oceânicas).  
-  Salva em `data/processed/`.
-
-- **03_feature_engineering.py**  
-  Converte dados processados em um dataset tabular (`.csv` ou `.parquet`) com variáveis ambientais por ponto (lat, lon, tempo).  
-  Esse dataset alimenta o modelo de machine learning.
-
-- **04_train_model.py**  
-  Treina modelos de predição de hotspots de tubarões.  
-  - Baseline: regressão logística  
-  - Principal: XGBoost ou Random Forest  
-  - Avaliação: AUC, PR, Hit@20%
-
-- **05_export_tiles.py**  
-  Exporta predições para mapas (GeoTIFF ou tiles web), para visualização em **Leaflet/MapLibre**.
 
 ---
 
@@ -140,6 +110,17 @@ Para garantir reprodutibilidade, aqui estão os pontos oficiais de acesso:
 - **Visualização**: Leaflet / MapLibre (web app interativo)  
 - **Dados NASA**: PACE, SWOT, ECCO, MODIS, MUR SST  
 
+## 🌐 Cadeia trófica (inspiração)
+```
+🌱 Fitoplâncton (PACE / MODIS)
+   ↓
+🐟 Peixes (correntes ECCO)
+   ↓
+🌀 Frentes / redemoinhos (SWOT + gradiente SST)
+   ↓
+🦈 Tubarões (modelados via ML)
+```
+
 ---
 
 ## 📊 Pipeline do Projeto
@@ -156,68 +137,59 @@ flowchart LR
 
 ---
 
-## 🔧 Configuração do Ambiente
-
-### 1. Criar ambiente virtual
+## ⚙️ Configuração do ambiente
 ```powershell
+# 1. Ambiente virtual
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-### 2. Instalar dependências
-```powershell
 pip install -r requirements.txt
+
+# 2. Credenciais Earthdata (~/.netrc)
+#   machine urs.earthdata.nasa.gov
+#   login SEU_USUARIO
+#   password SUA_SENHA
 ```
 
-### 3. Configurar credenciais Earthdata
-Criar arquivo `_netrc` em `C:\Users\<usuario>\_netrc`:
+## ▶️ Como rodar a pipeline
+```powershell
+python scripts/01_search_download.py
+python scripts/02_preprocess.py
+python scripts/03_feature_engineering.py
+python scripts/04_train_model.py
+python scripts/05_export_tiles.py
+python scripts/utils/build_tiles_manifest.py
+```
 
+## 🗺️ App web (Leaflet)
+```powershell
+python -m http.server 8000
+# abrir http://localhost:8000/app/index.html
 ```
-machine urs.earthdata.nasa.gov
-login SEU_USUARIO
-password SUA_SENHA
-```
+Dropdown lista as datas do manifest e o botão alterna a escala (viridis ⇄ inferno).
 
 ---
 
-## 🚀 Como rodar a pipeline
-
-1. **Baixar dados brutos**  
-   ```powershell
-   python scripts/01_search_download.py
-   ```
-
-2. **Pré-processar**  
-   ```powershell
-   python scripts/02_preprocess.py
-   ```
-
-3. **Gerar features**  
-   ```powershell
-   python scripts/03_feature_engineering.py
-   ```
-
-4. **Treinar modelo**  
-   ```powershell
-   python scripts/04_train_model.py
-   ```
-
-5. **Exportar mapas**  
-   ```powershell
-   python scripts/05_export_tiles.py
-   ```
+## 📸 Visualizações úteis
+- `scripts/visualization/compare_probability_vs_truecolor.py --date YYYY-MM-DD`
+- `scripts/visualization/compare_probability_vs_truecolor_interactive.py --date YYYY-MM-DD`
+- `scripts/visualization/compare_side_by_side_slider.py`
 
 ---
 
-## 📊 Status Atual (Kanban)
+### Status (2025-09-30)
+- ✅ Download (SST MUR, intervalo configurável)
+- ✅ Pré-processamento (gradiente com `xarray`, preservando `time`)
+- ✅ Feature engineering tabular
+- ✅ Treino baseline (XGBoost, métricas em `data/processed/metrics.json`)
+- ✅ Export GeoTIFFs + manifest (`data/tiles/*.tif`, `tiles_manifest.json`)
+- 🟡 Integração de variáveis adicionais (CHL, correntes, SWOT)
+- ⚪ Tag eletrônica (design conceitual, falta protótipo)
 
-- ✅ Download de dados (SST MUR)  
-- ✅ Pré-processamento (recorte + gradiente SST)  
-- ✅ Visualização estática (PNG) e interativa (HTML)  
-- 🟡 Feature engineering (em andamento)  
-- ⚪ ML model (pendente)  
-- ⚪ Visualização em mapas (pendente)  
-- ⚪ Tag eletrônica (pendente)  
+## 📌 Próximos passos
+- Integrar CHL (MODIS/PACE), correntes (ECCO) e SWOT ao pipeline (02→03→04).
+- Refinar o rótulo com dados de presença/ausência reais (telemetria, pesca, observações).
+- Adicionar retries/cache nos downloads MODIS (WMS) e testes automatizados (arquivos de amostra).
+- Evoluir o conceito da tag para protótipo físico.
 
 ---
 

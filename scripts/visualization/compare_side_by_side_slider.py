@@ -7,6 +7,19 @@ import base64
 import datetime as dt
 import io
 from pathlib import Path
+import sys
+
+_THIS_FILE = Path(__file__).resolve()
+for _parent in _THIS_FILE.parents:
+    if _parent.name == "scripts":
+        _PROJECT_ROOT_FALLBACK = _parent.parent
+        break
+else:
+    _PROJECT_ROOT_FALLBACK = _THIS_FILE.parent
+
+if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
+
 
 import numpy as np
 import plotly.graph_objects as go

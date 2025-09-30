@@ -1,4 +1,4 @@
-# Tubaroes do Espaco - Visao Geral e Melhorias
+﻿# Tubaroes do Espaco - Visao Geral e Melhorias
 
 Este documento resume, de forma pratica, o que o projeto faz hoje, como a pipeline esta organizada e quais melhorias priorizadas podem elevar a robustez, utilidade cientifica e a experiencia de uso.
 
@@ -6,6 +6,9 @@ Este documento resume, de forma pratica, o que o projeto faz hoje, como a pipeli
 
 ## Atualizacoes recentes (2025-09-30)
 
+
+- Atualizei config/config.yaml:1 para 2025-09-20→2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
+- Corrigi imports nos scripts/pipeline/visualizacao (fallback sys.path) e adicionei --date nas comparacoes, eliminando ModuleNotFoundError.
 - Padronizei scripts para usar `scripts.utils` (load_config/project_root) e evitar caminhos relativos duplicados.
 - Reescrevi `scripts/02_preprocess.py:1` preservando a dimensao `time`, gradiente com `xr.apply_ufunc` e metadados de bbox.
 - Atualizei `requirements.txt:1` em ASCII e inclui `requests`, `pillow`, `cartopy` e `joblib`.
@@ -138,3 +141,5 @@ Longo prazo
 
 - O projeto esta bem encaminhado na ingestao/pre-processamento, consolidacao de dataset e visualizacoes iniciais. As maiores lacunas agora estao na qualidade do rotulo, na incorporacao de variaveis adicionais e na robustez operacional.
 - A priorizacao sugerida foca em robustez (config centralizada, rotulos melhores, coordenacao de variaveis) e em aproximar o produto final (GeoTIFF/tiles + app Leaflet) de um fluxo pronto para uso publico.
+
+

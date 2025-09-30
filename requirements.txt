@@ -1,20 +1,44 @@
-# Core
+# ======================================
+# Tubaroes do Espaco - Requisitos
+# NASA Space Apps Challenge 2025
+# ======================================
+
+# Core science and arrays
 numpy
 pandas
-xarray
 scipy
 
-# Machine Learning
+# NetCDF / Xarray
+xarray[io]
+netcdf4
+h5netcdf
+
+# Machine learning
 scikit-learn
 xgboost
+joblib
 
-# Visualização
+# Visualization
 matplotlib
 seaborn
 plotly
 
-# NASA / Earthdata
+# NASA / Earthdata tooling
 earthaccess
+requests
 
-# Extra
+# Configuration
 pyyaml
+
+# Geospatial
+geopandas
+rasterio
+rioxarray
+cartopy
+folium
+
+# Performance
+dask
+
+# Imaging utilities
+pillow

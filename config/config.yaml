@@ -5,8 +5,8 @@ aoi:
   bbox: [-80.0, 25.0, -60.0, 40.0]
 
 time:
-  start: "2025-08-15"
-  end:   "2025-09-15"
+  start: "2025-09-20"
+  end:   "2025-09-25"
 
 datasets:
   sst_short_name: "MUR-JPL-L4-GLOB-v4.1"   # GHRSST / MUR L4 (PO.DAAC)

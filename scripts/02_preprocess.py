@@ -1,73 +1,160 @@
 #!/usr/bin/env python3
-# Pré-processamento de dados de SST: recorte por bbox, cálculo de gradiente e exportação
+"""Pre-processamento de SST: recorte por bbox, conversao para Celsius e gradiente por timestep."""
 
-import xarray as xr
-import numpy as np
+from __future__ import annotations
+
 from pathlib import Path
-import yaml
+import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-CFG = yaml.safe_load(open(ROOT/"config"/"config.yaml"))
+_THIS_FILE = Path(__file__).resolve()
+for _parent in _THIS_FILE.parents:
+    if _parent.name == "scripts":
+        _PROJECT_ROOT_FALLBACK = _parent.parent
+        break
+else:
+    _PROJECT_ROOT_FALLBACK = _THIS_FILE.parent
 
-RAW = ROOT / "data" / "raw"
-PROC = ROOT / "data" / "processed"
-PROC.mkdir(parents=True, exist_ok=True)
+if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
 
-bbox = CFG["aoi"]["bbox"]  # [west, south, east, north]
+from typing import Iterable, Tuple
 
-def preprocess_file(file_path, out_dir):
+import numpy as np
+import xarray as xr
+
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.utils import get_bbox, load_config, project_root
+
+
+ROOT = project_root()
+CFG = load_config()
+
+RAW_DIR = ROOT / "data" / "raw"
+PROC_DIR = ROOT / "data" / "processed"
+PROC_DIR.mkdir(parents=True, exist_ok=True)
+
+BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
+
+
+LAT_CANDIDATES = ("lat", "latitude")
+LON_CANDIDATES = ("lon", "longitude")
+
+
+def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
+    """Return the first coordinate name that matches any candidate."""
+
+    for name in candidates:
+        if name in data.coords:
+            return name
+    for dim in data.dims:
+        lower = dim.lower()
+        if any(lower.startswith(prefix[:3]) for prefix in candidates):
+            return dim
+    raise KeyError(f"Nenhuma coordenada encontrada para candidatos {candidates} em {data.dims}")
+
+
+def ensure_sorted(da: xr.DataArray, coord: str) -> xr.DataArray:
+    """Garantir que a coordenada esteja em ordem crescente."""
+
+    values = da[coord]  # type: ignore[index]
+    if values[0] > values[-1]:
+        return da.sortby(coord)
+    return da
+
+
+def clip_bbox(da: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
+    """Aplicar recorte espacial respeitando a orientacao das coordenadas."""
+
+    west, south, east, north = BBOX
+
+    da = ensure_sorted(da, lon_name)
+    da = ensure_sorted(da, lat_name)
+
+    lon_slice = slice(west, east)
+    lat_slice = slice(south, north)
+
+    return da.sel({lon_name: lon_slice, lat_name: lat_slice})
+
+
+def convert_to_celsius(da: xr.DataArray) -> xr.DataArray:
+    """Converter para graus Celsius quando os valores aparentam estar em Kelvin."""
+
+    if float(da.max()) > 200.0:
+        da = da - 273.15
+        da.attrs["units"] = "degree_Celsius"
+    return da
+
+
+def gradient_magnitude(field: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
+    """Calcular |gradiente| para cada timestep preservando dimensoes."""
+
+    core = [lat_name, lon_name]
+
+    def _gradient(arr: np.ndarray) -> np.ndarray:
+        d_dy, d_dx = np.gradient(arr)
+        return np.sqrt(d_dx**2 + d_dy**2)
+
+    grad = xr.apply_ufunc(
+        _gradient,
+        field,
+        input_core_dims=[core],
+        output_core_dims=[core],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[float],
+    )
+    grad.name = "sst_gradient"
+    grad.attrs["description"] = "Modulo do gradiente calculado com np.gradient"
+    return grad
+
+
+def preprocess_file(file_path: Path) -> Path:
+    """Processar um unico arquivo NetCDF e salvar em data/processed."""
+
     print(f"Processando {file_path.name} ...")
-    
-    ds = xr.open_dataset(file_path)
 
-    # identifica variável de SST
-    if "analysed_sst" in ds.variables:
-        sst = ds["analysed_sst"]
-    elif "sst" in ds.variables:
-        sst = ds["sst"]
-    else:
-        raise ValueError("Não encontrei variável de SST no arquivo")
+    with xr.open_dataset(file_path) as ds:
+        if "analysed_sst" in ds.variables:
+            sst = ds["analysed_sst"].load()
+        elif "sst" in ds.variables:
+            sst = ds["sst"].load()
+        else:
+            raise ValueError("Variavel de SST nao encontrada no arquivo")
 
-    # converte para °C se estiver em Kelvin
-    if sst.max() > 200:
-        sst = sst - 273.15
+    lat_name = detect_coordinate(sst, LAT_CANDIDATES)
+    lon_name = detect_coordinate(sst, LON_CANDIDATES)
 
-    # recorte por bbox
-    west, south, east, north = bbox
-    sst_clip = sst.sel(lon=slice(west, east), lat=slice(south, north))
+    sst = convert_to_celsius(sst)
+    sst = clip_bbox(sst, lat_name, lon_name)
 
-    # calcula gradiente espacial (proxy de frentes térmicas)
-    # garante 2D (lat x lon)
-    if "time" in sst_clip.dims:
-        sst2d = sst_clip.isel(time=0).values
-    else:
-        sst2d = sst_clip.values
+    grad = gradient_magnitude(sst, lat_name, lon_name)
 
-    # gradiente espacial
-    dTdy, dTdx = np.gradient(sst2d)
-    grad = np.sqrt(dTdx**2 + dTdy**2)
+    out = xr.Dataset({"sst": sst, "sst_gradient": grad})
+    out.attrs["source_file"] = file_path.name
+    out.attrs["bbox"] = BBOX
 
-    # cria dataset de saída
-    out = xr.Dataset(
-    {
-        "sst": (("lat", "lon"), sst2d),
-        "sst_gradient": (("lat", "lon"), grad),
-    },
-    coords={"lat": sst_clip.lat, "lon": sst_clip.lon}
-)
+    out_path = PROC_DIR / f"{file_path.stem}_proc.nc"
+    out.to_netcdf(out_path)
+    print(f"Arquivo processado salvo em {out_path}")
+    return out_path
 
-    # salva em NetCDF
-    out_file = out_dir / file_path.name.replace(".nc", "_proc.nc")
-    out.to_netcdf(out_file)
-    print(f"Arquivo processado salvo em {out_file}")
 
-if __name__ == "__main__":
-    files = sorted(RAW.glob("*.nc"))
+def main() -> None:
+    files = sorted(RAW_DIR.glob("*.nc"))
     if not files:
         print("Nenhum arquivo bruto encontrado em data/raw/")
-        exit()
+        return
 
-    for f in files:
-        preprocess_file(f, PROC)
+    for file_path in files:
+        try:
+            preprocess_file(file_path)
+        except Exception as exc:
+            print(f"Falha ao processar {file_path.name}: {exc}")
 
-    print("✅ Pré-processamento concluído. Arquivos em data/processed/")
+    print("Pre-processamento concluido. Arquivos em data/processed/")
+
+
+if __name__ == "__main__":
+    main()

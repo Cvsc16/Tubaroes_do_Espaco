@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+Slider interativo com alternância entre MODIS True Color (real)
+e SST MUR (científica).
+"""
+
+import datetime
+from pathlib import Path
+import numpy as np
+import xarray as xr
+import requests
+from PIL import Image
+import io
+import plotly.graph_objects as go
+
+ROOT = Path(__file__).resolve().parents[1]
+PROC = ROOT / "data" / "processed"
+OUT = ROOT / "data" / "compare"
+OUT.mkdir(parents=True, exist_ok=True)
+
+# Área de interesse (bbox do config.yaml)
+bbox = [-80.0, 25.0, -60.0, 40.0]  # [west, south, east, north]
+
+def download_modis_truecolor(date: str, out_file: Path):
+    """Baixa imagem MODIS Aqua True Color via Worldview WMS"""
+    base_url = "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi"
+    layer = "MODIS_Aqua_CorrectedReflectance_TrueColor"
+    params = {
+        "SERVICE": "WMS",
+        "REQUEST": "GetMap",
+        "VERSION": "1.1.1",
+        "LAYERS": layer,
+        "STYLES": "",
+        "FORMAT": "image/jpeg",
+        "BBOX": ",".join(map(str, bbox)),
+        "WIDTH": 512,
+        "HEIGHT": 512,
+        "SRS": "EPSG:4326",
+        "TIME": date,
+    }
+    r = requests.get(base_url, params=params, timeout=60)
+    r.raise_for_status()
+    img = Image.open(io.BytesIO(r.content))
+    img.save(out_file)
+    return out_file
+
+def build_slider():
+    files = sorted(PROC.glob("*_proc.nc"))
+    if not files:
+        raise FileNotFoundError("Nenhum arquivo processado encontrado.")
+
+    frames = []
+    modis_images = []
+
+    zmin, zmax = None, None  # limites globais
+
+    for f in files:
+        date_str = f.name.split("JPL")[0][:8]
+        date = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+        date_iso = date.isoformat()
+
+        # MODIS True Color
+        modis_path = OUT / f"MODIS_truecolor_{date_iso}.jpg"
+        if not modis_path.exists():
+            print(f"📥 Baixando MODIS True Color para {date_iso}...")
+            download_modis_truecolor(date_iso, modis_path)
+
+        with Image.open(modis_path) as img:
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format="PNG")
+            modis_b64 = "data:image/png;base64," + img_bytes.getvalue().decode("latin1", errors="ignore")
+
+        modis_images.append(
+            dict(
+                source=modis_path.as_posix(),
+                xref="x",
+                yref="y",
+                x=bbox[0],
+                y=bbox[3],
+                sizex=bbox[2] - bbox[0],
+                sizey=bbox[3] - bbox[1],
+                sizing="stretch",
+                opacity=1.0,
+                layer="below",
+            )
+        )
+
+        # SST MUR
+        ds = xr.open_dataset(f)
+        sst = ds["sst"].squeeze().values
+        lat = ds["lat"].values
+        lon = ds["lon"].values
+
+        if zmin is None:
+            zmin, zmax = np.nanmin(sst), np.nanmax(sst)
+
+        frames.append(
+            go.Frame(
+                data=[
+                    go.Heatmap(
+                        z=sst,
+                        x=lon,
+                        y=lat,
+                        colorscale="Turbo",
+                        zmin=zmin,
+                        zmax=zmax,
+                        colorbar=dict(title="°C"),
+                        visible=True,  # começa ativo no modo "científico"
+                    )
+                ],
+                layout=go.Layout(
+                    images=[modis_images[-1]]
+                ),
+                name=date_iso,
+            )
+        )
+
+    # figura inicial com primeiro dia
+    fig = go.Figure(frames=frames)
+
+    fig.add_trace(
+        go.Heatmap(
+            z=sst,
+            x=lon,
+            y=lat,
+            colorscale="Turbo",
+            zmin=zmin,
+            zmax=zmax,
+            colorbar=dict(title="°C"),
+        )
+    )
+
+    fig.update_layout(
+        title="🌍 Real (MODIS) vs 📊 Científica (SST)",
+        xaxis=dict(range=[bbox[0], bbox[2]], title="Longitude"),
+        yaxis=dict(range=[bbox[1], bbox[3]], title="Latitude"),
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                x=0.5,
+                y=1.15,
+                buttons=[
+                    dict(
+                        label="🌍 Real (MODIS)",
+                        method="relayout",
+                        args=[{"images": [modis_images[0]]}]  # ativa imagem
+                    ),
+                    dict(
+                        label="📊 Científica (SST)",
+                        method="relayout",
+                        args=[{"images": []}]  # remove imagem
+                    ),
+                ],
+            )
+        ],
+        sliders=[{
+            "steps": [
+                {
+                    "args": [[f.name], {"frame": {"duration": 500, "redraw": True}, "mode": "immediate"}],
+                    "label": f.name,
+                    "method": "animate"
+                }
+                for f in frames
+            ],
+            "transition": {"duration": 200},
+        }],
+    )
+
+    out_file = OUT / "compare_toggle_slider.html"
+    fig.write_html(out_file, auto_open=True)
+    print(f"✅ Slider interativo salvo em {out_file}")
+
+if __name__ == "__main__":
+    build_slider()

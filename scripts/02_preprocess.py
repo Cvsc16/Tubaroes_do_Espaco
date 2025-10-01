@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Pre-processamento de SST: recorte por bbox, conversao para Celsius e gradiente por timestep."""
+"""Pre-processamento de SST e MODIS: recorte por bbox, conversão para Celsius e gradiente por timestep."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import sys
+import numpy as np
+import xarray as xr
+from typing import Iterable
 
 _THIS_FILE = Path(__file__).resolve()
 for _parent in _THIS_FILE.parents:
@@ -16,11 +19,6 @@ else:
 
 if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
-
-from typing import Iterable, Tuple
-
-import numpy as np
-import xarray as xr
 
 if __package__ is None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -37,14 +35,11 @@ PROC_DIR.mkdir(parents=True, exist_ok=True)
 
 BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
 
-
 LAT_CANDIDATES = ("lat", "latitude")
 LON_CANDIDATES = ("lon", "longitude")
 
 
 def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
-    """Return the first coordinate name that matches any candidate."""
-
     for name in candidates:
         if name in data.coords:
             return name
@@ -56,51 +51,43 @@ def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
 
 
 def ensure_sorted(da: xr.DataArray, coord: str) -> xr.DataArray:
-    """Garantir que a coordenada esteja em ordem crescente."""
-
-    values = da[coord]  # type: ignore[index]
+    values = da[coord]
     if values[0] > values[-1]:
         return da.sortby(coord)
     return da
 
 
 def clip_bbox(da: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
-    """Aplicar recorte espacial respeitando a orientacao das coordenadas."""
-
     west, south, east, north = BBOX
-
     da = ensure_sorted(da, lon_name)
     da = ensure_sorted(da, lat_name)
-
-    lon_slice = slice(west, east)
-    lat_slice = slice(south, north)
-
-    return da.sel({lon_name: lon_slice, lat_name: lat_slice})
+    return da.sel({lon_name: slice(west, east), lat_name: slice(south, north)})
 
 
 def convert_to_celsius(da: xr.DataArray) -> xr.DataArray:
-    """Converter para graus Celsius quando os valores aparentam estar em Kelvin."""
-
-    if float(da.max()) > 200.0:
+    max_val = float(da.max().compute() if hasattr(da.data, "compute") else da.max())
+    if max_val > 200.0:
         da = da - 273.15
         da.attrs["units"] = "degree_Celsius"
     return da
 
 
 def gradient_magnitude(field: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
-    """Calcular |gradiente| para cada timestep preservando dimensoes."""
-
-    core = [lat_name, lon_name]
+    """Calcular |gradiente| evitando erro em grades muito pequenas."""
+    if field.sizes[lat_name] <= 1 or field.sizes[lon_name] <= 1:
+        return xr.full_like(field, np.nan)
 
     def _gradient(arr: np.ndarray) -> np.ndarray:
         d_dy, d_dx = np.gradient(arr)
         return np.sqrt(d_dx**2 + d_dy**2)
 
+    field_rechunked = field.chunk({lat_name: -1, lon_name: -1})
+
     grad = xr.apply_ufunc(
         _gradient,
-        field,
-        input_core_dims=[core],
-        output_core_dims=[core],
+        field_rechunked,
+        input_core_dims=[[lat_name, lon_name]],
+        output_core_dims=[[lat_name, lon_name]],
         vectorize=True,
         dask="parallelized",
         output_dtypes=[float],
@@ -111,38 +98,46 @@ def gradient_magnitude(field: xr.DataArray, lat_name: str, lon_name: str) -> xr.
 
 
 def preprocess_file(file_path: Path) -> Path:
-    """Processar um unico arquivo NetCDF e salvar em data/processed."""
-
     print(f"Processando {file_path.name} ...")
 
-    with xr.open_dataset(file_path) as ds:
-        ds = ds.load()
+    with xr.open_dataset(file_path, chunks={"time": 1}, decode_timedelta=False) as ds:
+        # 🔧 Corrige lat/lon se estiverem como variáveis
+        if "lat" in ds and "lon" in ds and "lat" not in ds.coords:
+            ds = ds.assign_coords(lat=ds["lat"], lon=ds["lon"])
 
         if "analysed_sst" in ds.variables or "sst" in ds.variables:
             var_name = "analysed_sst" if "analysed_sst" in ds.variables else "sst"
             field = ds[var_name]
-            field = convert_to_celsius(field)
+
             lat_name = detect_coordinate(field, LAT_CANDIDATES)
             lon_name = detect_coordinate(field, LON_CANDIDATES)
+
             field = clip_bbox(field, lat_name, lon_name)
+            field = convert_to_celsius(field)
             grad = gradient_magnitude(field, lat_name, lon_name)
+
             out = xr.Dataset({"sst": field, "sst_gradient": grad})
+
         elif "chlor_a" in ds.variables:
             field = ds["chlor_a"]
             lat_name = detect_coordinate(field, LAT_CANDIDATES)
             lon_name = detect_coordinate(field, LON_CANDIDATES)
+
             field = clip_bbox(field, lat_name, lon_name)
             field.attrs.setdefault("units", ds["chlor_a"].attrs.get("units", "mg m-3"))
             out = xr.Dataset({"chlor_a": field})
+
         else:
-            raise ValueError("Variavel reconhecida (SST ou chlor_a) nao encontrada no arquivo")
+            raise ValueError("Variável reconhecida (SST ou chlor_a) não encontrada no arquivo")
 
-    out.attrs["source_file"] = file_path.name
-    out.attrs["bbox"] = BBOX
+        out.attrs["source_file"] = file_path.name
+        out.attrs["bbox"] = BBOX
 
-    out_path = PROC_DIR / f"{file_path.stem}_proc.nc"
-    out.to_netcdf(out_path)
-    print(f"Arquivo processado salvo em {out_path}")
+        out_path = PROC_DIR / f"{file_path.stem}_proc.nc"
+        encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
+        out.to_netcdf(out_path, encoding=encoding, compute=True)
+
+    print(f"✅ Arquivo processado salvo em {out_path}")
     return out_path
 
 
@@ -156,9 +151,9 @@ def main() -> None:
         try:
             preprocess_file(file_path)
         except Exception as exc:
-            print(f"Falha ao processar {file_path.name}: {exc}")
+            print(f"❌ Falha ao processar {file_path.name}: {exc}")
 
-    print("Pre-processamento concluido. Arquivos em data/processed/")
+    print("🏁 Pre-processamento concluído. Arquivos em data/processed/")
 
 
 if __name__ == "__main__":

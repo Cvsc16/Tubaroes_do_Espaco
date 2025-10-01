@@ -54,3 +54,5 @@
 - 2025-09-30 — Ajustei deduplicação de MODIS L3 CHL usando `granule.filename`; se não houver `temporal`, gera chave pelo nome do arquivo.
 
 - 2025-09-30 — Ajustei config/config.yaml:1 para usar datas ISO (YYYY-MM-DDTHH:MM:SS) garantindo cobertura exata dos dias 26-27/set.
+
+- 2025-09-30 — Otimizei scripts/02_preprocess.py:1 (uso de chunks Dask, sem .load(), float32 + compressão) para reduzir memória.

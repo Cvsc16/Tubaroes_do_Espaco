@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Gera features tabulares combinando SST, gradiente e clorofila (MODIS)."""
+"""Gera features tabulares unificadas: SST + gradiente + CHLOR_A (MODIS), com interpolação."""
 
 from __future__ import annotations
 
-from collections import defaultdict
+import argparse
 from pathlib import Path
 import sys
-from typing import Dict
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
+
+# ---------------------------------------------------------------------
+# Setup de paths
+# ---------------------------------------------------------------------
 _THIS_FILE = Path(__file__).resolve()
 for _parent in _THIS_FILE.parents:
     if _parent.name == "scripts":
@@ -28,119 +31,112 @@ try:
 except ModuleNotFoundError:  # fallback quando chamado diretamente
     from utils_config import project_root
 
-
 ROOT = project_root()
 PROC_DIR = ROOT / "data" / "processed"
 FEATURES_DIR = ROOT / "data" / "features"
 FEATURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-LAT_NAMES = {"lat", "latitude"}
-LON_NAMES = {"lon", "longitude"}
-
-
-def _normalize_coords(df: pd.DataFrame) -> pd.DataFrame:
-    rename_map: Dict[str, str] = {}
-    if "latitude" in df.columns and "lat" not in df.columns:
-        rename_map["latitude"] = "lat"
-    if "longitude" in df.columns and "lon" not in df.columns:
-        rename_map["longitude"] = "lon"
-    if rename_map:
-        df = df.rename(columns=rename_map)
-    return df
-
-
+# ---------------------------------------------------------------------
+# Funções auxiliares
+# ---------------------------------------------------------------------
 def _extract_date_from_ds(ds: xr.Dataset, nc_path: Path) -> str:
+    """Extrai a data do dataset ou do nome do arquivo."""
     if "time" in ds and ds["time"].size > 0:
         dt64 = np.array(ds["time"]).ravel()[0]
         date_iso = pd.to_datetime(dt64).strftime("%Y-%m-%d")
     else:
-        token = nc_path.name.split("JPL")[0][:8]
-        date_iso = pd.to_datetime(token, format="%Y%m%d").strftime("%Y-%m-%d")
+        token = "".join([c for c in nc_path.name if c.isdigit()])
+        date_iso = pd.to_datetime(token[:8], format="%Y%m%d").strftime("%Y-%m-%d")
 
     source = nc_path.name.lower()
     if "sstfnd-mur" in source:
+        # Ajuste do MUR: arquivos vêm com timestamp de +1 dia
         date_iso = (pd.to_datetime(date_iso) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
     return date_iso
 
 
-def _load_dataframe(nc_path: Path) -> tuple[str, Dict[str, pd.DataFrame]]:
-    ds = xr.open_dataset(nc_path)
-    data: Dict[str, pd.DataFrame] = {}
+def interpolate_chlor_to_sst(sst_path: Path, chl_path: Path, dropna: bool) -> pd.DataFrame:
+    """Interpola CHLOR_A (MODIS) para o grid do SST (MUR) e retorna DataFrame unificado (apenas oceano)."""
+    sst_ds = xr.open_dataset(sst_path)
+    chl_ds = xr.open_dataset(chl_path)
 
-    date_iso = _extract_date_from_ds(ds, nc_path)
+    date_iso = _extract_date_from_ds(sst_ds, sst_path)
 
-    if {"sst", "sst_gradient"}.issubset(ds.data_vars):
-        df = ds[["sst", "sst_gradient"]].to_dataframe().reset_index()
-        df = _normalize_coords(df)
-        df["date"] = pd.to_datetime(df.get("time", date_iso)).dt.strftime("%Y-%m-%d")
-        df = df.drop(columns=["time"], errors="ignore")
-        data["sst"] = df
-    if "chlor_a" in ds.data_vars:
-        df_chl = ds[["chlor_a"]].to_dataframe().reset_index()
-        df_chl = _normalize_coords(df_chl)
-        df_chl["date"] = pd.to_datetime(df_chl.get("time", date_iso)).dt.strftime("%Y-%m-%d")
-        df_chl = df_chl.drop(columns=["time"], errors="ignore")
-        data["chl"] = df_chl
+    # Interpola chlor_a para o grid do SST
+    chl_interp = chl_ds.interp(lat=sst_ds.lat, lon=sst_ds.lon, method="linear")
 
-    if not data:
-        raise ValueError(f"Nenhuma variavel reconhecida em {nc_path.name}")
+    # Garante exatamente o mesmo grid do SST (preenche CHL com NaN onde faltar)
+    chl_on_sst = chl_interp.reindex_like(sst_ds, method=None)
 
-    return date_iso, data
+    # Junta variáveis preservando todo grid do SST
+    merged = xr.merge(
+        [sst_ds[["sst", "sst_gradient"]], chl_on_sst[["chlor_a"]]],
+        join="outer",
+        combine_attrs="override"
+    )
+
+    # Converte para DataFrame
+    df = merged.to_dataframe().reset_index()
+
+    # Adiciona data
+    df["date"] = date_iso
+
+    # Mantém só oceano: remove linhas sem SST
+    if dropna:
+        # Dataset enxuto: exige SST e CHL válidos
+        df = df.dropna(subset=["sst", "chlor_a"], how="any")
+    else:
+        # Padrão: mantém todos os pontos com SST válido (oceano), CHL pode ser NaN
+        df = df.dropna(subset=["sst"], how="any")
+
+    # Conversão para float32 (mais leve)
+    for col in ["sst", "sst_gradient", "chlor_a", "lat", "lon"]:
+        if col in df.columns:
+            df[col] = df[col].astype("float32")
+
+    sst_ds.close()
+    chl_ds.close()
+
+    return df
 
 
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
 def main() -> None:
-    files = sorted(PROC_DIR.glob("*_proc.nc"))
-    if not files:
-        raise FileNotFoundError("Nenhum arquivo processado em data/processed/")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dropna", action="store_true", help="Remove linhas sem chlor_a (default: mantém NaN)")
+    args = parser.parse_args()
 
-    per_date: Dict[str, Dict[str, pd.DataFrame]] = defaultdict(dict)
-    sources: Dict[str, str] = {}
+    sst_files = sorted(PROC_DIR.glob("*SSTfnd*.nc"))
+    chl_files = sorted(PROC_DIR.glob("*CHL*.nc"))
 
-    for nc_path in files:
+    if not sst_files or not chl_files:
+        raise FileNotFoundError("Arquivos de SST ou CHL não encontrados em data/processed/")
+
+    # Processa em pares (assumindo ordenação por data equivalente)
+    for sst_path, chl_path in zip(sst_files, chl_files):
         try:
-            date_iso, data = _load_dataframe(nc_path)
+            df = interpolate_chlor_to_sst(sst_path, chl_path, args.dropna)
         except Exception as exc:
-            print(f"[features] Falha ao ler {nc_path.name}: {exc}")
+            print(f"[features] Falha ao processar {sst_path.name} + {chl_path.name}: {exc}")
             continue
 
-        for key, df in data.items():
-            per_date[date_iso][key] = df
-            if key == "sst":
-                sources[date_iso] = nc_path.name
-
-    if not per_date:
-        raise RuntimeError("Nenhum dataset válido encontrado para gerar features.")
-
-    for date_iso, group in per_date.items():
-        if "sst" not in group:
-            print(f"[features] Ignorando {date_iso}: arquivo de SST ausente.")
+        if df.empty:
+            print(f"[features] {sst_path.name} + {chl_path.name} -> sem dados válidos após interpolação")
             continue
 
-        sst_df = group["sst"].copy()
-        sst_df["lat_round"] = sst_df["lat"].round(4)
-        sst_df["lon_round"] = sst_df["lon"].round(4)
+        date_iso = df["date"].iloc[0]
+        out_file = FEATURES_DIR / f"{date_iso.replace('-', '')}_features.csv"
+        df.to_csv(out_file, index=False, float_format="%.6f")
 
-        if "chl" in group:
-            chl_df = group["chl"].copy()
-            chl_df["lat_round"] = chl_df["lat"].round(4)
-            chl_df["lon_round"] = chl_df["lon"].round(4)
-            merged = sst_df.merge(
-                chl_df[["lat_round", "lon_round", "date", "chlor_a"]],
-                on=["lat_round", "lon_round", "date"],
-                how="left",
-            )
-        else:
-            merged = sst_df
-            merged["chlor_a"] = np.nan
-
-        merged = merged.drop(columns=["lat_round", "lon_round"])
-        merged["source_file"] = sources.get(date_iso, "")
-
-        out_csv = FEATURES_DIR / f"{date_iso.replace('-', '')}_features.csv"
-        merged.to_csv(out_csv, index=False)
-        print(f"[features] {date_iso} -> {out_csv} ({len(merged)} linhas)")
+        # Print compacto informando fontes e total de linhas
+        print(
+            f"[features] {date_iso} -> Features salvas em {out_file} "
+            f"({len(df)} linhas) | SST: {sst_path.name} | CHL: {chl_path.name}"
+        )
 
 
 if __name__ == "__main__":

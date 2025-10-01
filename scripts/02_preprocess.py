@@ -102,8 +102,8 @@ def preprocess_file(file_path: Path) -> Path:
 
     with xr.open_dataset(file_path, chunks={"time": 1}, decode_timedelta=False) as ds:
         # 🔧 Corrige lat/lon se estiverem como variáveis
-        if "lat" in ds and "lon" in ds and "lat" not in ds.coords:
-            ds = ds.assign_coords(lat=ds["lat"], lon=ds["lon"])
+        if "lat" in ds.data_vars and "lon" in ds.data_vars:
+            ds = ds.set_coords(["lat", "lon"])
 
         if "analysed_sst" in ds.variables or "sst" in ds.variables:
             var_name = "analysed_sst" if "analysed_sst" in ds.variables else "sst"
@@ -133,7 +133,11 @@ def preprocess_file(file_path: Path) -> Path:
         out.attrs["source_file"] = file_path.name
         out.attrs["bbox"] = BBOX
 
-        out_path = PROC_DIR / f"{file_path.stem}_proc.nc"
+        # CORREÇÃO: Manter o nome do arquivo (sem adicionar _proc novamente)
+        # Arquivos já vêm renomeados: 20250926_SSTfnd-MUR.nc
+        out_name = file_path.stem + "_proc.nc"
+        out_path = PROC_DIR / out_name
+        
         encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
         out.to_netcdf(out_path, encoding=encoding, compute=True)
 
@@ -147,13 +151,27 @@ def main() -> None:
         print("Nenhum arquivo bruto encontrado em data/raw/")
         return
 
+    print(f"\n{'='*60}")
+    print(f"Encontrados {len(files)} arquivo(s) para processar")
+    print(f"{'='*60}\n")
+
+    processed = 0
+    failed = 0
+
     for file_path in files:
         try:
             preprocess_file(file_path)
+            processed += 1
         except Exception as exc:
             print(f"❌ Falha ao processar {file_path.name}: {exc}")
+            failed += 1
 
-    print("🏁 Pre-processamento concluído. Arquivos em data/processed/")
+    print(f"\n{'='*60}")
+    print(f"🏁 Pre-processamento concluído!")
+    print(f"   ✅ Processados: {processed}")
+    print(f"   ❌ Falhas: {failed}")
+    print(f"   📂 Arquivos em: {PROC_DIR}")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

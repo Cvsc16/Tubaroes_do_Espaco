@@ -40,29 +40,32 @@ FEATURES_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------
 # Funções auxiliares
 # ---------------------------------------------------------------------
-def _extract_date_from_ds(ds: xr.Dataset, nc_path: Path) -> str:
-    """Extrai a data do dataset ou do nome do arquivo."""
-    if "time" in ds and ds["time"].size > 0:
-        dt64 = np.array(ds["time"]).ravel()[0]
-        date_iso = pd.to_datetime(dt64).strftime("%Y-%m-%d")
-    else:
-        token = "".join([c for c in nc_path.name if c.isdigit()])
-        date_iso = pd.to_datetime(token[:8], format="%Y%m%d").strftime("%Y-%m-%d")
-
-    source = nc_path.name.lower()
-    if "sstfnd-mur" in source:
-        # Ajuste do MUR: arquivos vêm com timestamp de +1 dia
-        date_iso = (pd.to_datetime(date_iso) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-
-    return date_iso
+def _extract_date_from_filename(nc_path: Path) -> str:
+    """Extrai a data do nome do arquivo processado.
+    
+    Os arquivos já vêm com a data lógica correta do script 01:
+    - 20250926_SSTfnd-MUR_proc.nc -> 2025-09-26
+    - 20250926_CHL-MODIS_proc.nc -> 2025-09-26
+    """
+    # Pega os primeiros 8 dígitos do nome
+    digits = "".join([c for c in nc_path.name if c.isdigit()])[:8]
+    return pd.to_datetime(digits, format="%Y%m%d").strftime("%Y-%m-%d")
 
 
 def interpolate_chlor_to_sst(sst_path: Path, chl_path: Path, dropna: bool) -> pd.DataFrame:
-    """Interpola CHLOR_A (MODIS) para o grid do SST (MUR) e retorna DataFrame unificado (apenas oceano)."""
-    sst_ds = xr.open_dataset(sst_path)
-    chl_ds = xr.open_dataset(chl_path)
+    """Interpola CHLOR_A (MODIS) para o grid do SST (MUR) e retorna DataFrame unificado."""
+    # Abrir com chunks para evitar sobrecarga de memória
+    sst_ds = xr.open_dataset(sst_path, chunks={'time': 1})
+    chl_ds = xr.open_dataset(chl_path, chunks={'time': 1})
 
-    date_iso = _extract_date_from_ds(sst_ds, sst_path)
+    # Data já está correta no nome do arquivo
+    date_iso = _extract_date_from_filename(sst_path)
+
+    # Squeeze time se necessário
+    if 'time' in sst_ds.dims and sst_ds.sizes.get('time', 0) == 1:
+        sst_ds = sst_ds.squeeze('time', drop=True)
+    if 'time' in chl_ds.dims and chl_ds.sizes.get('time', 0) == 1:
+        chl_ds = chl_ds.squeeze('time', drop=True)
 
     # Interpola chlor_a para o grid do SST
     chl_interp = chl_ds.interp(lat=sst_ds.lat, lon=sst_ds.lon, method="linear")
@@ -80,6 +83,10 @@ def interpolate_chlor_to_sst(sst_path: Path, chl_path: Path, dropna: bool) -> pd
     # Converte para DataFrame
     df = merged.to_dataframe().reset_index()
 
+    # Remove colunas desnecessárias que podem ter NaN
+    cols_to_keep = ["lat", "lon", "sst", "sst_gradient", "chlor_a"]
+    df = df[[col for col in cols_to_keep if col in df.columns]]
+
     # Adiciona data
     df["date"] = date_iso
 
@@ -90,6 +97,9 @@ def interpolate_chlor_to_sst(sst_path: Path, chl_path: Path, dropna: bool) -> pd
     else:
         # Padrão: mantém todos os pontos com SST válido (oceano), CHL pode ser NaN
         df = df.dropna(subset=["sst"], how="any")
+
+    # Remove linhas com lat/lon inválidos
+    df = df.dropna(subset=["lat", "lon"], how="any")
 
     # Conversão para float32 (mais leve)
     for col in ["sst", "sst_gradient", "chlor_a", "lat", "lon"]:
@@ -110,33 +120,69 @@ def main() -> None:
     parser.add_argument("--dropna", action="store_true", help="Remove linhas sem chlor_a (default: mantém NaN)")
     args = parser.parse_args()
 
-    sst_files = sorted(PROC_DIR.glob("*SSTfnd*.nc"))
-    chl_files = sorted(PROC_DIR.glob("*CHL*.nc"))
+    sst_files = sorted(PROC_DIR.glob("*SSTfnd*_proc.nc"))
+    chl_files = sorted(PROC_DIR.glob("*CHL*_proc.nc"))
 
-    if not sst_files or not chl_files:
-        raise FileNotFoundError("Arquivos de SST ou CHL não encontrados em data/processed/")
+    if not sst_files:
+        raise FileNotFoundError("Arquivos de SST não encontrados em data/processed/")
+    if not chl_files:
+        raise FileNotFoundError("Arquivos de CHL não encontrados em data/processed/")
 
-    # Processa em pares (assumindo ordenação por data equivalente)
-    for sst_path, chl_path in zip(sst_files, chl_files):
+    print(f"\n{'='*60}")
+    print(f"Encontrados {len(sst_files)} arquivo(s) SST e {len(chl_files)} arquivo(s) CHL")
+    print(f"{'='*60}\n")
+
+    # Agrupa por data (usando o prefixo YYYYMMDD do nome)
+    sst_by_date = {_extract_date_from_filename(f): f for f in sst_files}
+    chl_by_date = {_extract_date_from_filename(f): f for f in chl_files}
+
+    # Processa apenas datas que têm ambos SST e CHL
+    common_dates = set(sst_by_date.keys()) & set(chl_by_date.keys())
+    
+    if not common_dates:
+        print("❌ Nenhuma data com SST e CHL correspondentes encontrada!")
+        return
+
+    processed = 0
+    failed = 0
+
+    for date_iso in sorted(common_dates):
+        sst_path = sst_by_date[date_iso]
+        chl_path = chl_by_date[date_iso]
+
         try:
             df = interpolate_chlor_to_sst(sst_path, chl_path, args.dropna)
         except Exception as exc:
-            print(f"[features] Falha ao processar {sst_path.name} + {chl_path.name}: {exc}")
+            print(f"❌ Falha ao processar {date_iso}: {exc}")
+            failed += 1
             continue
 
         if df.empty:
-            print(f"[features] {sst_path.name} + {chl_path.name} -> sem dados válidos após interpolação")
+            print(f"⚠️  {date_iso} -> sem dados válidos após interpolação")
+            failed += 1
             continue
 
-        date_iso = df["date"].iloc[0]
         out_file = FEATURES_DIR / f"{date_iso.replace('-', '')}_features.csv"
-        df.to_csv(out_file, index=False, float_format="%.6f")
+        
+        # Reordenar colunas para melhor visualização
+        col_order = ["date", "lat", "lon", "sst", "sst_gradient", "chlor_a"]
+        df = df[[col for col in col_order if col in df.columns]]
+        
+        # Salvar com tratamento especial para NaN
+        df.to_csv(out_file, index=False, float_format="%.6f", na_rep="NaN")
 
-        # Print compacto informando fontes e total de linhas
         print(
-            f"[features] {date_iso} -> Features salvas em {out_file} "
-            f"({len(df)} linhas) | SST: {sst_path.name} | CHL: {chl_path.name}"
+            f"✅ {date_iso} -> {out_file.name} "
+            f"({len(df):,} linhas) | SST: {sst_path.name} | CHL: {chl_path.name}"
         )
+        processed += 1
+
+    print(f"\n{'='*60}")
+    print(f"Geração de features concluída!")
+    print(f"   ✅ Processados: {processed}")
+    print(f"   ❌ Falhas: {failed}")
+    print(f"   📂 Arquivos em: {FEATURES_DIR}")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

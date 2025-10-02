@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Pre-processamento de SST e MODIS: recorte por bbox, conversão para Celsius e gradiente por timestep."""
+"""Pre-processamento de SST, MODIS e PACE:
+- Recorte por bbox
+- Conversão para Celsius (SST)
+- Gradiente por timestep (SST)
+- Exporta NetCDF compactado em data/processed/
+"""
 
 from __future__ import annotations
 
@@ -24,7 +29,6 @@ if __package__ is None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.utils import get_bbox, load_config, project_root
-
 
 ROOT = project_root()
 CFG = load_config()
@@ -106,6 +110,7 @@ def preprocess_file(file_path: Path) -> Path:
             ds = ds.set_coords(["lat", "lon"])
 
         if "analysed_sst" in ds.variables or "sst" in ds.variables:
+            # SST (MUR)
             var_name = "analysed_sst" if "analysed_sst" in ds.variables else "sst"
             field = ds[var_name]
 
@@ -119,13 +124,17 @@ def preprocess_file(file_path: Path) -> Path:
             out = xr.Dataset({"sst": field, "sst_gradient": grad})
 
         elif "chlor_a" in ds.variables:
+            # MODIS ou PACE
             field = ds["chlor_a"]
             lat_name = detect_coordinate(field, LAT_CANDIDATES)
             lon_name = detect_coordinate(field, LON_CANDIDATES)
 
             field = clip_bbox(field, lat_name, lon_name)
             field.attrs.setdefault("units", ds["chlor_a"].attrs.get("units", "mg m-3"))
-            out = xr.Dataset({"chlor_a": field})
+
+            # Diferenciar MODIS vs PACE pela tag no nome
+            tag = "PACE" if "PACE" in file_path.name or "OCI" in file_path.name else "MODIS"
+            out = xr.Dataset({f"chlor_a_{tag.lower()}": field})
 
         else:
             raise ValueError("Variável reconhecida (SST ou chlor_a) não encontrada no arquivo")
@@ -133,11 +142,9 @@ def preprocess_file(file_path: Path) -> Path:
         out.attrs["source_file"] = file_path.name
         out.attrs["bbox"] = BBOX
 
-        # CORREÇÃO: Manter o nome do arquivo (sem adicionar _proc novamente)
-        # Arquivos já vêm renomeados: 20250926_SSTfnd-MUR.nc
         out_name = file_path.stem + "_proc.nc"
         out_path = PROC_DIR / out_name
-        
+
         encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
         out.to_netcdf(out_path, encoding=encoding, compute=True)
 
@@ -146,7 +153,8 @@ def preprocess_file(file_path: Path) -> Path:
 
 
 def main() -> None:
-    files = sorted(RAW_DIR.glob("*.nc"))
+    # 🔎 Processa todos os arquivos dentro de raw/ e subpastas
+    files = sorted(RAW_DIR.glob("**/*.nc"))
     if not files:
         print("Nenhum arquivo bruto encontrado em data/raw/")
         return

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Busca e download de dados NASA via earthaccess, guiado por config.yaml.
 
-Apenas baixa os arquivos para data/raw/. O processamento é feito pelo script 02_preprocess.py
+Baixa arquivos em subpastas dentro de data/raw/{sst,modis,pace,...}.
+O processamento é feito pelo script 02_preprocess.py
 """
 
 from __future__ import annotations
@@ -41,8 +42,15 @@ TIME_RANGE = (
     CFG.get("time", {}).get("end"),
 )
 MAX_GRANULES = CFG.get("processing", {}).get("max_granules_per_source", 10)
+
+# datasets
 MODIS_SHORT = CFG.get("datasets", {}).get("modis_l3_chl_short_name")
 MODIS_PREF_RES = CFG.get("datasets", {}).get("modis_resolution", "4km")
+
+PACE_SHORT = CFG.get("datasets", {}).get("pace_l3_chl_short_name")
+PACE_RES = CFG.get("datasets", {}).get("pace_resolution", "4km")
+PACE_TYPE = CFG.get("datasets", {}).get("pace_product_type", "DAY")
+PACE_REALTIME = CFG.get("datasets", {}).get("pace_realtime", "NRT")
 
 
 # ---------------------------------------------------------------------
@@ -97,65 +105,61 @@ def filter_results_by_date(results, start: str, end: str):
     return kept
 
 
-def rename_downloaded_files(downloaded_paths: List[Path]) -> List[Path]:
-    """Renomeia arquivos baixados com a 'data lógica' baseada apenas no nome do arquivo.
+def rename_downloaded_files(downloaded_paths: List[Path], tag_hint: str = "") -> List[Path]:
+    """Renomeia arquivos baixados com a 'data lógica'.
     
-    - MUR: arquivo 20250927... vira 20250926... (dia anterior, pois MUR usa timestamp às 09:00 do dia seguinte)
-    - MODIS: arquivo 20250926... mantém 20250926... (mesmo dia)
+    - MUR: data lógica = dia anterior
+    - MODIS: data lógica = mesmo dia
+    - PACE: data lógica = mesmo dia
     
-    NÃO abre os arquivos NetCDF, apenas renomeia baseado no padrão do nome.
+    Cria nomes padronizados: YYYYMMDD_TAG.nc
     """
     renamed: List[Path] = []
-    
+
     for src in downloaded_paths:
         if src.suffix.lower() != ".nc":
             renamed.append(src)
             continue
-        
+
         name_low = src.name.lower()
-        
+
         # Detectar tipo de arquivo
-        if "sstfnd" in name_low or "mur" in name_low or "ghrsst" in name_low:
+        if "sstfnd" in name_low or "mur" in name_low or "ghrsst" in name_low or tag_hint == "sst":
             tag = "SSTfnd-MUR"
-            days_offset = -1  # MUR: dia anterior
-        elif "chlor" in name_low or "chl" in name_low or "modis" in name_low or "aqua" in name_low:
+            days_offset = -1
+        elif "pace" in name_low or "oci" in name_low or tag_hint == "pace":
+            tag = "CHL-PACE"
+            days_offset = 0
+        elif "chlor" in name_low or "chl" in name_low or "modis" in name_low or "aqua" in name_low or tag_hint == "modis":
             tag = "CHL-MODIS"
-            days_offset = 0  # MODIS: mesmo dia
+            days_offset = 0
         else:
             print(f"[rename] Tipo não reconhecido, mantendo nome original: {src.name}")
             renamed.append(src)
             continue
-        
-        # Extrair data do nome do arquivo
+
+        # Extrair data
         try:
-            if "aqua_modis" in name_low:
-                # Formato: AQUA_MODIS.20250926.L3m...
+            if "aqua_modis" in name_low or tag == "CHL-MODIS":
                 parts = src.name.split(".")
-                if len(parts) >= 2:
-                    date_token = parts[1]
-                else:
-                    raise ValueError("Formato MODIS inválido")
+                date_token = parts[1] if len(parts) >= 2 else src.name[:8]
+            elif "pace" in name_low or "oci" in name_low or tag == "CHL-PACE":
+                parts = src.name.split(".")
+                date_token = parts[1] if len(parts) >= 2 else src.name[:8]
             else:
-                # Formato: 20250927090000-JPL-L4...
                 date_token = src.name[:8]
-            
-            # Converter para date e aplicar offset
+
             file_date = dt.datetime.strptime(date_token, "%Y%m%d").date()
             logical_date = file_date + dt.timedelta(days=days_offset)
-            
-            # Novo nome: YYYYMMDD_TAG.nc
+
             new_name = f"{logical_date.strftime('%Y%m%d')}_{tag}.nc"
             new_path = src.parent / new_name
-            
-            # Renomear (se já existe, sobrescreve)
+
             if new_path.exists():
-                print(f"[rename] Arquivo destino já existe, sobrescrevendo: {new_name}")
                 new_path.unlink()
-            
             src.rename(new_path)
             renamed.append(new_path)
-            
-            # Log
+
             delta_days = (logical_date - file_date).days
             sign = "+" if delta_days >= 0 else ""
             print(
@@ -164,12 +168,12 @@ def rename_downloaded_files(downloaded_paths: List[Path]) -> List[Path]:
                 f"         {src.name}\n"
                 f"      -> {new_name}"
             )
-            
+
         except Exception as e:
             print(f"[rename] Erro ao renomear {src.name}: {e}")
             renamed.append(src)
             continue
-    
+
     return renamed
 
 
@@ -179,9 +183,13 @@ def find_and_download(
     keywords: list[str] | None = None,
     collection: str | None = None,
     days_offset_for_query: int = 0,
+    subdir: str = "",
+    tag_hint: str = "",
 ) -> int:
-    """Executa a busca e download para data/raw.
-       Retorna o número de arquivos baixados."""
+    """Executa a busca e download para data/raw/{subdir}."""
+
+    out_dir = OUT_RAW / subdir if subdir else OUT_RAW
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     query: dict[str, object] = {}
     if short_name:
@@ -190,7 +198,6 @@ def find_and_download(
         west, south, east, north = AOI
         query["bounding_box"] = (west, south, east, north)
 
-    # Aplica offset de consulta por dataset
     time_range = TIME_RANGE
     if TIME_RANGE[0] and TIME_RANGE[1]:
         time_range = apply_offset_to_range(TIME_RANGE[0], TIME_RANGE[1], days_offset_for_query)
@@ -206,10 +213,9 @@ def find_and_download(
         print("Nenhum granule encontrado.")
         return 0
 
-    # Filtro por data (aplica sobre o range offsetado)
     results = filter_results_by_date(results, time_range[0], time_range[1])
 
-    # Se MODIS, remove 8D e garante resolução desejada
+    # Filtro MODIS
     if short_name and short_name == MODIS_SHORT:
         filtered = []
         seen_dates = set()
@@ -236,24 +242,47 @@ def find_and_download(
         print(f"[earthaccess] MODIS ({MODIS_PREF_RES}) datas mantidas: {sorted(kept_dates)}")
         results = filtered
 
+    # Filtro PACE
+    if short_name and short_name == PACE_SHORT:
+        filtered = []
+        kept_dates = []
+        for granule in results:
+            links = granule.data_links() or []
+            href = links[0] if links else ""
+            if PACE_RES not in href:
+                continue
+            if PACE_TYPE not in href:
+                continue
+            if PACE_REALTIME and PACE_REALTIME not in href:
+                continue
+
+            match = re.search(r"(20\d{6})", href)
+            if not match:
+                continue
+            token = match.group(1)
+            date_key = f"{token[:4]}-{token[4:6]}-{token[6:8]}"
+            kept_dates.append(date_key)
+            filtered.append(granule)
+
+        print(f"[earthaccess] PACE ({PACE_RES}, {PACE_TYPE}, {PACE_REALTIME}) datas mantidas: {sorted(set(kept_dates))}")
+        results = filtered
+
     limited = results[:MAX_GRANULES]
     print(f"-> {len(limited)} granules encontrados; iniciando download...")
 
-    # Download
     import earthaccess
     downloaded_count = 0
-    
+
     try:
-        paths = earthaccess.download(limited, str(OUT_RAW))
+        paths = earthaccess.download(limited, str(out_dir))
         if paths:
             downloaded_paths = [Path(p) for p in paths]
             print(f"[download] {len(downloaded_paths)} arquivo(s) baixado(s)")
-            
-            # Renomear com data lógica
-            renamed_paths = rename_downloaded_files(downloaded_paths)
+
+            renamed_paths = rename_downloaded_files(downloaded_paths, tag_hint=tag_hint)
             downloaded_count = len(renamed_paths)
-            
-            print(f"\n[download] Total processado: {downloaded_count} arquivo(s) em {OUT_RAW}")
+
+            print(f"\n[download] Total processado: {downloaded_count} arquivo(s) em {out_dir}")
         else:
             print("[download] Nenhum arquivo foi baixado.")
     except Exception as exc:
@@ -272,17 +301,19 @@ def main() -> None:
 
     total_downloaded = 0
 
-    # SST (MUR): consulta +1d (arquivos MUR usam timestamp do dia seguinte)
+    # SST (MUR)
     print("\n" + "="*60)
     print("BAIXANDO SST (MUR)...")
     print("="*60)
     count = find_and_download(
         short_name=datasets.get("sst_short_name"),
         days_offset_for_query=+1,
+        subdir="sst",
+        tag_hint="sst",
     )
     total_downloaded += count
 
-    # MODIS CHL: consulta na data normal
+    # MODIS
     print("\n" + "="*60)
     print("BAIXANDO CLOROFILA (MODIS)...")
     print("="*60)
@@ -291,6 +322,22 @@ def main() -> None:
         count = find_and_download(
             short_name=chl_short,
             days_offset_for_query=0,
+            subdir="modis",
+            tag_hint="modis",
+        )
+        total_downloaded += count
+
+    # PACE
+    print("\n" + "="*60)
+    print("BAIXANDO CLOROFILA (PACE OCI)...")
+    print("="*60)
+    pace_short = datasets.get("pace_l3_chl_short_name")
+    if pace_short:
+        count = find_and_download(
+            short_name=pace_short,
+            days_offset_for_query=0,
+            subdir="pace",
+            tag_hint="pace",
         )
         total_downloaded += count
 

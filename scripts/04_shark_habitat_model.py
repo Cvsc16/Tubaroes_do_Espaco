@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """Modelo de adequabilidade de habitat para tubarões baseado em conhecimento ecológico.
 
-Calcula um score de 0-1 para cada ponto oceânico baseado em:
-- Gradientes de SST (frentes térmicas agregam presas)
-- Clorofila (produtividade primária)
-- Temperatura adequada para a espécie
+Agora inclui 3 espécies comuns no Atlântico Norte:
+- Tubarão-branco (Carcharodon carcharias)
+- Tubarão-tigre (Galeocerdo cuvier)
+- Tubarão-azul (Prionace glauca)
 
-Referências científicas:
-- Tubarão azul (Prionace glauca): prefere SST 10-25°C, frentes térmicas
-- Gradientes fortes (0.02-0.15 °C/km) indicam zonas de convergência
-- Clorofila moderada (0.1-2.0 mg/m³) indica produtividade sem blooms excessivos
+Outputs:
+- CSV de predições por espécie
+- Mapas individuais
+- Relatórios JSON
+- Figura comparativa lado a lado
 """
 
 from __future__ import annotations
-
 from pathlib import Path
-import sys
+import sys, json
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 
+# Ajuste de path do projeto
 _THIS_FILE = Path(__file__).resolve()
 for _parent in _THIS_FILE.parents:
     if _parent.name == "scripts":
@@ -27,12 +33,6 @@ else:
 
 if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
-
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 
 try:
     from scripts.utils import load_config
@@ -46,256 +46,236 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CFG = load_config()
 
-
-def shark_habitat_score(sst, sst_gradient, chlor_a, species="blue_shark"):
-    """
-    Calcula score de adequabilidade de habitat (0-1).
-    
-    Parâmetros baseados em literatura para tubarão azul (Prionace glauca):
-    - SST ótima: 15-24°C (zona temperada/subtropical)
-    - Gradiente: 0.02-0.15°C/km (frentes térmicas fortes)
-    - Clorofila: 0.1-2.0 mg/m³ (produtividade moderada)
-    
-    Args:
-        sst: Temperatura superficial (°C)
-        sst_gradient: Magnitude do gradiente (°C/km)
-        chlor_a: Concentração de clorofila (mg/m³)
-        species: Espécie alvo (future: diferentes parâmetros por espécie)
-    
-    Returns:
-        float: Score de 0 (inadequado) a 1 (ótimo)
-    """
+# ===============================
+# SCORES POR ESPÉCIE
+# ===============================
+def shark_habitat_score(sst, sst_gradient, chl_modis, chl_pace, species="blue_shark"):
+    """Score de habitat (0–1) para diferentes espécies de tubarão"""
+    chlor_a = chl_pace if not pd.isna(chl_pace) else chl_modis
     score = 0.0
-    
-    # Componente 1: Gradiente de temperatura (40% do score)
-    # Frentes térmicas agregam presas (zooplâncton, peixes)
+
+    # --- Gradiente térmico ---
     if pd.isna(sst_gradient):
         gradient_score = 0.0
     elif sst_gradient < 0.01:
-        gradient_score = 0.2  # Águas muito homogêneas = pouca agregação
+        gradient_score = 0.2
     elif 0.02 <= sst_gradient <= 0.15:
-        gradient_score = 1.0  # Zona ótima
+        gradient_score = 1.0
     elif 0.15 < sst_gradient <= 0.30:
-        gradient_score = 0.7  # Ainda bom, mas muito intenso
+        gradient_score = 0.7
     else:
-        gradient_score = 0.3  # Gradientes extremos podem ser instáveis
-    
+        gradient_score = 0.3
     score += 0.40 * gradient_score
-    
-    # Componente 2: Clorofila (30% do score)
-    # Base da cadeia trófica, mas tubarões evitam blooms excessivos
+
+    # --- Clorofila ---
     if pd.isna(chlor_a):
-        chl_score = 0.5  # Penalidade menor que gradiente ausente
+        chl_score = 0.5
     elif chlor_a < 0.05:
-        chl_score = 0.3  # Oligotrófico demais
+        chl_score = 0.3
     elif 0.1 <= chlor_a <= 2.0:
-        chl_score = 1.0  # Zona ótima de produtividade
+        chl_score = 1.0
     elif 2.0 < chlor_a <= 5.0:
-        chl_score = 0.6  # Produtivo mas começando a ficar turvo
+        chl_score = 0.6
     else:
-        chl_score = 0.2  # Bloom excessivo = água turva
-    
+        chl_score = 0.2
     score += 0.30 * chl_score
-    
-    # Componente 3: Temperatura adequada (30% do score)
-    # Tubarão azul é mesopelágico, prefere temperaturas temperadas
+
+    # --- Temperatura ótima por espécie ---
     if pd.isna(sst):
         temp_score = 0.0
-    elif sst < 10:
-        temp_score = 0.2  # Muito frio
-    elif 10 <= sst < 15:
-        temp_score = 0.6  # Limite inferior aceitável
-    elif 15 <= sst <= 24:
-        temp_score = 1.0  # Zona ótima
-    elif 24 < sst <= 28:
-        temp_score = 0.7  # Limite superior aceitável
     else:
-        temp_score = 0.3  # Tropical demais
-    
+        if species == "blue_shark":
+            if sst < 10: temp_score = 0.2
+            elif 10 <= sst < 15: temp_score = 0.6
+            elif 15 <= sst <= 24: temp_score = 1.0
+            elif 24 < sst <= 28: temp_score = 0.7
+            else: temp_score = 0.3
+        elif species == "white_shark":
+            if sst < 12: temp_score = 0.2
+            elif 12 <= sst < 16: temp_score = 0.7
+            elif 16 <= sst <= 20: temp_score = 1.0
+            elif 20 < sst <= 24: temp_score = 0.8
+            else: temp_score = 0.4
+        elif species == "tiger_shark":
+            if sst < 18: temp_score = 0.2
+            elif 18 <= sst < 22: temp_score = 0.7
+            elif 22 <= sst <= 28: temp_score = 1.0
+            elif 28 < sst <= 30: temp_score = 0.6
+            else: temp_score = 0.3
+        else:
+            temp_score = 0.5
     score += 0.30 * temp_score
-    
+
     return score
 
+# ===============================
+# PROCESSAMENTO
+# ===============================
+def process_features_file(file_path: Path, species: str) -> pd.DataFrame:
+    """Processa CSV de features e calcula habitat score para a espécie"""
+    print(f"Processando {file_path.name} ({species})...")
+    df = pd.read_csv(file_path)
 
-def process_features_file(file_path: Path) -> pd.DataFrame:
-    """Processa um arquivo de features e calcula habitat scores."""
-    print(f"Processando {file_path.name}...")
-    
-    # Carregar apenas colunas necessárias
-    df = pd.read_csv(
-        file_path,
-        usecols=["date", "lat", "lon", "sst", "sst_gradient", "chlor_a"],
-        dtype={
-            "lat": "float32",
-            "lon": "float32",
-            "sst": "float32",
-            "sst_gradient": "float32",
-            "chlor_a": "float32"
-        }
-    )
-    
-    # Calcular score de habitat
+    if df.empty:
+        print(f"⚠️ {file_path.name} está vazio")
+        return pd.DataFrame()
+
     df["habitat_score"] = df.apply(
         lambda row: shark_habitat_score(
-            row["sst"],
-            row["sst_gradient"],
-            row["chlor_a"]
-        ),
-        axis=1
+            row["sst"], row["sst_gradient"],
+            row.get("chlor_a_modis", np.nan),
+            row.get("chlor_a_pace", np.nan),
+            species
+        ), axis=1
     )
-    
-    # Classificar em categorias
+
     df["habitat_class"] = pd.cut(
         df["habitat_score"],
         bins=[0, 0.3, 0.6, 0.8, 1.0],
         labels=["poor", "moderate", "good", "excellent"],
         include_lowest=True
     )
-    
-    # Identificar top 10% como hotspots
-    threshold = df["habitat_score"].quantile(0.90)
-    df["is_hotspot"] = (df["habitat_score"] >= threshold).astype(int)
-    
+
+    # Hotspots fixos = top 10%
+    n_hotspots = max(1, int(len(df) * 0.10))
+    top_hotspots_idx = df["habitat_score"].nlargest(n_hotspots).index
+    df["is_hotspot"] = 0
+    df.loc[top_hotspots_idx, "is_hotspot"] = 1
+
     return df
 
+def create_habitat_map(df: pd.DataFrame, date_str: str, output_path: Path, title: str):
+    """Mapa individual por espécie"""
+    if df.empty:
+        print(f"⚠️ Sem dados para {title} em {date_str}")
+        return
 
-def create_habitat_map(df: pd.DataFrame, date_str: str, output_path: Path):
-    """Cria mapa de calor mostrando adequabilidade de habitat."""
-    fig = plt.figure(figsize=(14, 10))
+    fig = plt.figure(figsize=(8, 6))
     ax = plt.axes(projection=ccrs.PlateCarree())
-    
-    # Configurar mapa
-    ax.set_extent(
-        [df["lon"].min(), df["lon"].max(), df["lat"].min(), df["lat"].max()],
-        crs=ccrs.PlateCarree()
-    )
+    ax.set_extent([df["lon"].min(), df["lon"].max(),
+                   df["lat"].min(), df["lat"].max()])
     ax.add_feature(cfeature.LAND, facecolor='lightgray')
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
     ax.gridlines(draw_labels=True, linewidth=0.5, alpha=0.5)
-    
-    # Scatter plot com cores baseadas no score
-    scatter = ax.scatter(
-        df["lon"],
-        df["lat"],
-        c=df["habitat_score"],
-        s=1,
-        cmap="RdYlGn",
-        vmin=0,
-        vmax=1,
-        alpha=0.6,
-        transform=ccrs.PlateCarree()
-    )
-    
-    # Marcar hotspots
+
+    # Scatter do score
+    scatter = ax.scatter(df["lon"], df["lat"], c=df["habitat_score"],
+                         s=1, cmap="RdYlGn", vmin=0, vmax=1, alpha=0.6)
+
+    # Hotspots (top 10%)
     hotspots = df[df["is_hotspot"] == 1]
-    ax.scatter(
-        hotspots["lon"],
-        hotspots["lat"],
-        s=5,
-        c='red',
-        marker='x',
-        alpha=0.8,
-        transform=ccrs.PlateCarree(),
-        label='Hotspots (top 10%)'
-    )
-    
-    cbar = plt.colorbar(scatter, ax=ax, orientation="vertical", pad=0.05, shrink=0.8)
-    cbar.set_label("Shark Habitat Suitability Score", fontsize=12)
-    
-    ax.legend(loc='upper right')
-    ax.set_title(
-        f"Predicted Shark Foraging Habitat - {date_str}\n"
-        f"Based on SST, Thermal Fronts, and Chlorophyll-a",
-        fontsize=14,
-        fontweight='bold'
-    )
-    
-    plt.tight_layout()
+    ax.scatter(hotspots["lon"], hotspots["lat"],
+               s=5, c="red", marker="x", alpha=0.8,
+               label="Hotspots", transform=ccrs.PlateCarree())
+    ax.legend(loc="upper right")
+    cbar = plt.colorbar(scatter, ax=ax, orientation="vertical")
+    cbar.set_label("Habitat Score (0–1)")
+    ax.set_title(f"{title} - {date_str}")
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    
-    print(f"Mapa salvo em {output_path}")
 
+def create_comparative_map(dfs: dict, date_str: str, output_path: Path):
+    """Mapa comparativo com 3 espécies lado a lado"""
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6),
+                             subplot_kw={'projection': ccrs.PlateCarree()})
+    titles = {"white_shark": "White Shark",
+              "tiger_shark": "Tiger Shark",
+              "blue_shark": "Blue Shark"}
+    scatter = None
+    for ax, (species, df) in zip(axes, dfs.items()):
+        if df.empty: 
+            continue
+        ax.set_extent([df["lon"].min(), df["lon"].max(),
+                       df["lat"].min(), df["lat"].max()])
+        ax.add_feature(cfeature.LAND, facecolor='lightgray')
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+        ax.gridlines(draw_labels=True, linewidth=0.5, alpha=0.5)
+        scatter = ax.scatter(df["lon"], df["lat"], c=df["habitat_score"],
+                             s=1, cmap="RdYlGn", vmin=0, vmax=1, alpha=0.6)
+        # Hotspots
+        hotspots = df[df["is_hotspot"] == 1]
+        ax.scatter(hotspots["lon"], hotspots["lat"],
+                   s=5, c="red", marker="x", alpha=0.8,
+                   label="Hotspots", transform=ccrs.PlateCarree())
+        ax.legend(loc="upper right")
+        ax.set_title(titles[species])
+    if scatter:
+        cbar = fig.colorbar(scatter, ax=axes, orientation="horizontal",
+                            fraction=0.05, pad=0.1)
+        cbar.set_label("Habitat Suitability Score (0–1)")
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Mapa comparativo salvo em {output_path}")
 
-def generate_summary_report(df: pd.DataFrame, date_str: str) -> dict:
-    """Gera estatísticas resumidas do modelo."""
-    report = {
+def generate_summary_report(df: pd.DataFrame, date_str: str, species: str) -> dict:
+    return {
         "date": date_str,
+        "species": species,
         "total_points": len(df),
         "mean_score": float(df["habitat_score"].mean()),
-        "median_score": float(df["habitat_score"].median()),
-        "std_score": float(df["habitat_score"].std()),
         "n_hotspots": int(df["is_hotspot"].sum()),
-        "hotspot_percentage": float((df["is_hotspot"].sum() / len(df)) * 100),
         "habitat_distribution": df["habitat_class"].value_counts().to_dict(),
-        "top_hotspot_locations": df.nlargest(10, "habitat_score")[
-            ["lat", "lon", "habitat_score", "sst", "sst_gradient", "chlor_a"]
-        ].to_dict(orient="records")
+        "top_hotspots": df.nlargest(5, "habitat_score")[
+            ["lat", "lon", "habitat_score"]].to_dict(orient="records")
     }
-    return report
 
-
+# ===============================
+# MAIN
+# ===============================
 def main():
     files = sorted(FEATURES_DIR.glob("*.csv"))
     if not files:
-        raise FileNotFoundError(
-            "Nenhum arquivo de features encontrado em data/features/. "
-            "Execute 03_feature_engineering.py primeiro."
-        )
-    
-    print(f"\n{'='*60}")
-    print(f"MODELO DE HABITAT DE TUBARÕES")
-    print(f"Processando {len(files)} arquivo(s)...")
-    print(f"{'='*60}\n")
-    
+        raise FileNotFoundError("Nenhum arquivo em data/features/")
+
     all_reports = []
-    
+    species_list = ["white_shark", "tiger_shark", "blue_shark"]
+
     for file_path in files:
-        try:
-            # Processar features
-            df = process_features_file(file_path)
-            
-            # Extrair data do nome do arquivo
-            date_str = file_path.stem.split("_")[0]  # 20250926_features -> 20250926
-            date_formatted = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-            
-            # Salvar predições
-            output_csv = OUTPUT_DIR / f"{date_str}_habitat_predictions.csv"
-            df.to_csv(output_csv, index=False)
-            print(f"Predições salvas em {output_csv}")
-            
-            # Criar mapa
-            map_path = OUTPUT_DIR / f"{date_str}_habitat_map.png"
-            create_habitat_map(df, date_formatted, map_path)
-            
-            # Gerar relatório
-            report = generate_summary_report(df, date_formatted)
+        date_str = file_path.stem.split("_")[0]
+        date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        dfs_species = {}
+
+        print(f"\n{'='*60}")
+        print(f"🌊 MODELO DE HABITAT — {date_fmt}")
+        print(f"{'='*60}")
+
+        for species in species_list:
+            df = process_features_file(file_path, species)
+            if df.empty:
+                continue
+            dfs_species[species] = df
+
+            # salvar CSV
+            out_csv = OUTPUT_DIR / f"{date_str}_{species}_predictions.csv"
+            df.to_csv(out_csv, index=False)
+
+            # salvar mapa individual
+            out_map = OUTPUT_DIR / f"{date_str}_{species}_map.png"
+            create_habitat_map(df, date_fmt, out_map, species)
+
+            # gerar relatório
+            report = generate_summary_report(df, date_fmt, species)
             all_reports.append(report)
-            
-            # Imprimir estatísticas
-            print(f"\nEstatísticas para {date_formatted}:")
-            print(f"  Score médio: {report['mean_score']:.3f}")
-            print(f"  Hotspots identificados: {report['n_hotspots']:,} ({report['hotspot_percentage']:.1f}%)")
-            print(f"  Distribuição de habitat:")
+
+            # imprimir resumo no terminal
+            print(f"\n🐋 {species.replace('_',' ').title()}")
+            print(f"  Média score: {report['mean_score']:.3f}")
+            print(f"  Hotspots: {report['n_hotspots']} ({(report['n_hotspots']/report['total_points']*100):.1f}%)")
+            print("  Distribuição:")
             for hab_class, count in report['habitat_distribution'].items():
                 print(f"    {hab_class}: {count:,}")
-            print()
-            
-        except Exception as e:
-            print(f"Erro ao processar {file_path.name}: {e}")
-            continue
-    
-    # Salvar relatório consolidado
-    import json
-    report_path = OUTPUT_DIR / "habitat_model_report.json"
-    with open(report_path, "w", encoding="utf-8") as f:
+
+        # mapa comparativo
+        if dfs_species:
+            out_cmp = OUTPUT_DIR / f"{date_str}_comparative_map.png"
+            create_comparative_map(dfs_species, date_fmt, out_cmp)
+
+    # salvar relatório consolidado
+    with open(OUTPUT_DIR / "habitat_model_report.json", "w") as f:
         json.dump(all_reports, f, indent=2)
-    
-    print(f"\n{'='*60}")
-    print(f"CONCLUÍDO!")
-    print(f"  Predições: {OUTPUT_DIR}")
-    print(f"  Relatório: {report_path}")
-    print(f"{'='*60}\n")
+
+    print(f"\n✅ Processamento concluído!")
+    print(f"📂 Resultados em: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":

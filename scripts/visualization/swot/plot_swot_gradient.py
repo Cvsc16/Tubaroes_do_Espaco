@@ -1,11 +1,14 @@
 ﻿#!/usr/bin/env python3
-"""Visualiza mapa do gradiente de SSH (derivado do SWOT) com referência cartográfica."""
+"""Visualiza mapa do gradiente de SSH (derivado do SWOT) com referência cartográfica.
+Cada ponto SWOT é colorido pelo valor de gradiente (sem extrapolação).
+"""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from pathlib import Path
 import sys
 
@@ -29,7 +32,6 @@ from scripts.utils import load_config, get_bbox
 # === CONFIGURAÇÕES ===
 FEATURES_DIR = Path(PROJECT_ROOT, "data/features")
 GRAD_COLUMN = "ssh_swot_gradient"
-MASK_COLUMN = "swot_mask"
 CFG = load_config()
 DEFAULT_BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
 
@@ -52,7 +54,8 @@ def _plot_bbox(ax):
     west, south, east, north = DEFAULT_BBOX
     xs = [west, east, east, west, west]
     ys = [south, south, north, north, south]
-    (line,) = ax.plot(xs, ys, color="red", linestyle="--", linewidth=1.0, transform=ccrs.PlateCarree(), label="BBOX")
+    (line,) = ax.plot(xs, ys, color="red", linestyle="--", linewidth=1.0,
+                      transform=ccrs.PlateCarree(), label="BBOX")
     return line
 
 
@@ -64,31 +67,31 @@ def plot_file(csv_file: Path):
         print(f"❌ Coluna {GRAD_COLUMN} não encontrada em {csv_file.name}")
         return
 
-    df = df.dropna(subset=[GRAD_COLUMN])
-    if df.empty:
+    df_valid = df.dropna(subset=[GRAD_COLUMN])
+    if df_valid.empty:
         print(f"Nenhum dado válido em {GRAD_COLUMN} encontrado em {csv_file.name}")
         return
 
-    grid = df.pivot(index="lat", columns="lon", values=GRAD_COLUMN)
-    lats = grid.index.values
-    lons = grid.columns.values
-    data = np.ma.masked_invalid(grid.values)
+    lons = df_valid["lon"].values
+    lats = df_valid["lat"].values
+    values = df_valid[GRAD_COLUMN].values
 
     extent = _compute_extent(lons, lats)
 
-    fig = plt.figure(figsize=(8.5, 7))
+    fig = plt.figure(figsize=(9, 7))
     ax = plt.axes(projection=ccrs.PlateCarree())
 
     cmap = plt.cm.inferno
-    mesh = ax.pcolormesh(
+    scatter = ax.scatter(
         lons,
         lats,
-        data,
+        c=values,
         cmap=cmap,
-        shading="auto",
+        s=18,
+        alpha=0.9,
         transform=ccrs.PlateCarree(),
     )
-    cbar = plt.colorbar(mesh, ax=ax, orientation="vertical", pad=0.02)
+    cbar = plt.colorbar(scatter, ax=ax, orientation="vertical", pad=0.02)
     cbar.set_label("SSH Gradient (m/km)")
 
     ax.set_extent(extent, crs=ccrs.PlateCarree())
@@ -100,31 +103,13 @@ def plot_file(csv_file: Path):
     gl.top_labels = False
     gl.right_labels = False
 
-    handles = []
-    labels = []
-    if MASK_COLUMN in df.columns:
-        df_swot = df[df[MASK_COLUMN] == 1]
-        if not df_swot.empty:
-            scatter = ax.scatter(
-                df_swot["lon"],
-                df_swot["lat"],
-                c="white",
-                edgecolors="black",
-                linewidths=0.2,
-                s=5,
-                alpha=0.6,
-                transform=ccrs.PlateCarree(),
-                label="Faixa SWOT real",
-            )
-            handles.append(scatter)
-            labels.append("Faixa SWOT real")
-
+    handles = [Line2D([], [], marker="o", color="w", markerfacecolor="k", markersize=6,
+                      label="Faixa SWOT real")]
     bbox_line = _plot_bbox(ax)
     handles.append(bbox_line)
-    labels.append("BBOX")
+    ax.legend(handles, [h.get_label() for h in handles], loc="lower right")
 
-    ax.legend(handles, labels, loc="lower right")
-    ax.set_title(f"Gradiente SSH SWOT - {df['date'].iloc[0]}")
+    ax.set_title(f"Gradiente SSH SWOT - {df_valid['date'].iloc[0]}")
 
     out_png = csv_file.with_name(csv_file.stem + "_SSHgradient.png")
     plt.savefig(out_png, dpi=200, bbox_inches="tight")

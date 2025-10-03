@@ -69,6 +69,45 @@ def apply_offset_to_range(start_iso: str, end_iso: str, days_offset: int) -> Tup
     e = iso_to_date(end_iso) + dt.timedelta(days=days_offset)
     return (date_to_iso(s), date_to_iso(e))
 
+def expected_renamed_name(href: str, tag_hint: str) -> str | None:
+    """
+    Retorna o nome esperado após renomear, com base no href e no tipo de dataset.
+    Aplica o MESMO offset/lógica do rename_downloaded_files.
+    """
+    import re
+    fname = Path(href).name.lower()
+
+    # SST (MUR) -> renomeia para (data_do_arquivo - 1 dia)
+    if "sstfnd" in fname or "mur" in fname or "ghrsst" in fname or tag_hint == "sst":
+        m = re.search(r"(20\d{6})", fname)
+        if m:
+            d = dt.datetime.strptime(m.group(1), "%Y%m%d").date()
+            logical = d + dt.timedelta(days=-1)  # <- MESMO offset do rename
+            return f"{logical.strftime('%Y%m%d')}_SSTfnd-MUR.nc"
+
+    # MODIS (sem offset)
+    if "modis" in fname or "aqua" in fname or "chlor" in fname or tag_hint == "modis":
+        m = re.search(r"(20\d{6})", fname)
+        if m:
+            return f"{m.group(1)}_CHL-MODIS.nc"
+
+        # PACE
+    if "pace" in fname or "oci" in fname or tag_hint == "pace":
+        parts = fname.split(".")
+        if len(parts) >= 2 and re.match(r"20\d{6}", parts[1]):
+            date_token = parts[1]
+            return f"{date_token}_CHL-PACE.nc"
+
+
+    # SWOT (usa timestamp com hora, sem offset)
+    if "swot" in fname or tag_hint == "swot":
+        m = re.search(r"(20\d{6}T\d{6})", fname)
+        if m:
+            return f"{m.group(1)}_SSH-SWOT.nc"
+
+    return None
+
+
 
 # ---------------------------------------------------------------------
 # Login
@@ -133,6 +172,29 @@ def rename_downloaded_files(downloaded_paths: List[Path], tag_hint: str = "") ->
         elif "chlor" in name_low or "chl" in name_low or "modis" in name_low or "aqua" in name_low or tag_hint == "modis":
             tag = "CHL-MODIS"
             days_offset = 0
+        elif "swot" in name_low or tag_hint == "swot":
+            tag = "SSH-SWOT"
+            days_offset = 0
+
+            match = re.search(r"(20\d{6}T\d{6})", src.name)
+            if match:
+                date_token = match.group(1)
+                new_name = f"{date_token}_{tag}.nc"
+                new_path = src.parent / new_name
+                
+                if new_path.exists():
+                    new_path.unlink()
+                
+                src.rename(new_path)
+                renamed.append(new_path)
+                
+                print(f"[rename] {tag}: {date_token} -> {new_name}")
+                continue
+            else:
+                print(f"[rename] Não encontrei data em {src.name}, mantendo original.")
+                renamed.append(src)
+                continue
+
         else:
             print(f"[rename] Tipo não reconhecido, mantendo nome original: {src.name}")
             renamed.append(src)
@@ -268,13 +330,34 @@ def find_and_download(
         results = filtered
 
     limited = results[:MAX_GRANULES]
-    print(f"-> {len(limited)} granules encontrados; iniciando download...")
+    print(f"-> {len(limited)} granules encontrados; iniciando verificação...")
+
+    # 🚫 filtro: pula arquivos já renomeados
+    to_download = []
+    for granule in limited:
+        links = granule.data_links() or []
+        if not links:
+            continue
+        href = links[0]
+
+        existing = {p.name.lower() for p in out_dir.glob("*.nc")}
+
+        expected = expected_renamed_name(href, tag_hint)
+        if expected and expected.lower() in existing:
+            print(f"[skip] já existe: {expected}")
+            continue
+
+        to_download.append(granule)
+
+    if not to_download:
+        print("[skip] Nenhum novo arquivo para baixar (todos já existem).")
+        return 0
 
     import earthaccess
     downloaded_count = 0
 
     try:
-        paths = earthaccess.download(limited, str(out_dir))
+        paths = earthaccess.download(to_download, str(out_dir))
         if paths:
             downloaded_paths = [Path(p) for p in paths]
             print(f"[download] {len(downloaded_paths)} arquivo(s) baixado(s)")
@@ -340,6 +423,20 @@ def main() -> None:
             tag_hint="pace",
         )
         total_downloaded += count
+
+    # SWOT
+    print("\n" + "="*60)
+    print("BAIXANDO SSH (SWOT)...")
+    print("="*60)
+    swot_short = datasets.get("swot_short_name")
+    if swot_short:
+        count = find_and_download(
+            short_name=swot_short,
+            days_offset_for_query=0,
+            subdir="swot",
+            tag_hint="swot",
+        )
+        total_downloaded += count    
 
     print("\n" + "="*60)
     print(f"Download concluído! Total: {total_downloaded} arquivo(s) em {OUT_RAW}")

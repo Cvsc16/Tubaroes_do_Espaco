@@ -56,3 +56,6 @@
 - 2025-09-30 — Ajustei config/config.yaml:1 para usar datas ISO (YYYY-MM-DDTHH:MM:SS) garantindo cobertura exata dos dias 26-27/set.
 
 - 2025-09-30 — Otimizei scripts/02_preprocess.py:1 (uso de chunks Dask, sem .load(), float32 + compressão) para reduzir memória.
+- 2025-10-03 - Atualizei scripts/02_preprocess.py:1 para manter apenas pontos SWOT e reescrevi scripts/03_feature_engineering.py:1 projetando esses pontos na grade sem extrapolar valores.
+- 2025-10-03 - Atualizei scripts/visualization/swot/plot_swot.py:1 e plot_swot_gradient.py:1 para usar Cartopy, adicionando costas, grade e máscara SWOT nas figuras.
+- 2025-10-03 - Ajustei novamente plot_swot*.py para forçar o extent ao BBOX do projeto e desenhar a caixa de referência nas figuras.

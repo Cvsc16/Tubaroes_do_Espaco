@@ -17,7 +17,7 @@ datasets:
   pace_resolution: "4km"
   ecco_short_name: "ECCO_L4_OCEAN_VEL_05DEG_DAILY_V4R4"  # Daily u/v currents (PO.DAAC)
   # SWOT: L2 Low Rate Sea Surface Height (expert/basic); usamos short_name conhecido:
-  swot_short_name: "SWOT_L2_LR_SSH_Unsmoothed_2.0"
+  swot_short_name: "SWOT_L2_LR_SSH_Unsmoothed_D"
 
 processing:
   grid_resolution_deg: 0.1     # ~10km

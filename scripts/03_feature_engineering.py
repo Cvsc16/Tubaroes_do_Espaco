@@ -174,14 +174,23 @@ def merge_datasets(
 
     cols = [
         "date", "lat", "lon", "sst", "sst_gradient",
-        "chlor_a_modis", "chlor_a_pace",
+        "chlor_a_modis", "chlor_a_pace", "chlor_a",
         "ssh_swot", "ssh_swot_gradient",
         "swot_mask"
     ]
     df = df[[c for c in cols if c in df.columns]]
 
+    # Unifica clorofila em uma coluna padronizada "chlor_a"
+    if "chlor_a" not in df.columns:
+        if "chlor_a_pace" in df.columns and "chlor_a_modis" in df.columns:
+            df["chlor_a"] = df["chlor_a_pace"].fillna(df["chlor_a_modis"])
+        elif "chlor_a_pace" in df.columns:
+            df["chlor_a"] = df["chlor_a_pace"]
+        elif "chlor_a_modis" in df.columns:
+            df["chlor_a"] = df["chlor_a_modis"]
+
     for col in [
-        "sst", "sst_gradient", "chlor_a_modis", "chlor_a_pace",
+        "sst", "sst_gradient", "chlor_a_modis", "chlor_a_pace", "chlor_a",
         "ssh_swot", "ssh_swot_gradient", "lat", "lon", "swot_mask"
     ]:
         if col in df.columns:

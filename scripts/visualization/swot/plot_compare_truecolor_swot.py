@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare MODIS True Color imagery with SST gradient maps from feature CSVs."""
+"""Compare MODIS True Color imagery with SWOT sea-surface height maps."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import io
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
+import sys
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -18,6 +19,19 @@ import pandas as pd
 import requests
 from PIL import Image
 
+_THIS_FILE = Path(__file__).resolve()
+for parent in _THIS_FILE.parents:
+    if parent.name == "scripts":
+        PROJECT_ROOT = parent.parent
+        break
+else:
+    PROJECT_ROOT = _THIS_FILE.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.utils import load_config, get_bbox
+
 
 def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
@@ -27,16 +41,18 @@ def build_argparser() -> argparse.ArgumentParser:
                         help="Glob pattern for feature CSV selection")
     parser.add_argument("--truecolor-dir", default="data/compare",
                         help="Directory to read/write MODIS true color images")
-    parser.add_argument("--out-dir", default="data/viz/sst_gradient",
+    parser.add_argument("--out-dir", default="data/viz/swot",
                         help="Directory for comparison PNGs")
-    parser.add_argument("--pctl", type=float, nargs=2, default=(2.0, 98.0),
-                        help="Percentiles (abs min, abs max) for symmetric scaling")
+    parser.add_argument("--vmin", type=float, default=None,
+                        help="Fixed minimum for SSH color scale")
     parser.add_argument("--vmax", type=float, default=None,
-                        help="Override absolute maximum for gradient scale")
-    parser.add_argument("--cmap", default="seismic",
-                        help="Colormap for gradient visualization")
-    parser.add_argument("--mask-chlor-a", action="store_true",
-                        help="Mask pixels lacking chlorophyll data (when available)")
+                        help="Fixed maximum for SSH color scale")
+    parser.add_argument("--pctl", type=float, nargs=2, default=(2.0, 98.0),
+                        help="Percentiles (min,max) used when vmin/vmax are not provided")
+    parser.add_argument("--mask-threshold", type=float, default=0.5,
+                        help="Minimum swot_mask value to keep a pixel (default: 0.5)")
+    parser.add_argument("--cmap", default="coolwarm",
+                        help="Colormap for SSH visualization (default: coolwarm)")
     parser.add_argument("--disable-download", action="store_true",
                         help="Skip automatic true color download when image is missing")
     parser.add_argument("--wms-base-url", default="https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
@@ -51,6 +67,8 @@ def build_argparser() -> argparse.ArgumentParser:
                         help="Timeout (seconds) per download attempt")
     parser.add_argument("--download-retries", type=int, default=2,
                         help="Retry attempts when download fails")
+    parser.add_argument("--auto-extent", action="store_true",
+                        help="Derive extent from SWOT data instead of config bbox")
     return parser
 
 
@@ -60,42 +78,63 @@ def iter_files(directory: Path, pattern: str) -> Iterable[Path]:
 
 def load_csv(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
-    required = {"lat", "lon", "sst_gradient"}
-    if not required.issubset(df.columns):
-        missing = required - set(df.columns)
-        raise ValueError(f"Missing columns {missing} in {csv_path.name}")
+    if "ssh_swot" not in df.columns:
+        raise ValueError(f"ssh_swot column missing in {csv_path.name}")
+    if not {"lat", "lon"}.issubset(df.columns):
+        raise ValueError(f"{csv_path.name} missing lat/lon columns")
     return df
 
 
-def apply_masks(df: pd.DataFrame, mask_chlor_a: bool) -> pd.DataFrame:
-    df = df.dropna(subset=["sst_gradient"])
-    if mask_chlor_a:
-        chlor_cols = [col for col in ("chlor_a", "chlor_a_pace", "chlor_a_modis") if col in df.columns]
-        if chlor_cols:
-            mask = ~pd.isna(df[chlor_cols]).all(axis=1)
-            df = df[mask]
-    return df
+def combined_mask(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    if "swot_mask" not in df.columns:
+        return df
+    mask = df["swot_mask"].astype(float).fillna(0.0)
+    return df[mask > threshold]
 
 
-def compute_grid(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    grid = df.pivot(index="lat", columns="lon", values="sst_gradient")
-    grid = grid.reindex(index=np.sort(grid.index.values), columns=np.sort(grid.columns.values))
-    lats = grid.index.values
-    lons = grid.columns.values
-    return lats, lons, grid.values
+CFG = load_config()
+DEFAULT_BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
 
 
-def pick_scale(values: np.ndarray, vmax: float | None, pctl: tuple[float, float]) -> float:
+def merge_extent(lons: np.ndarray, lats: np.ndarray, bbox: list[float], pad_factor: float = 0.15) -> list[float]:
+    lon_min = float(np.nanmin(lons)) if lons.size else bbox[0]
+    lon_max = float(np.nanmax(lons)) if lons.size else bbox[2]
+    lat_min = float(np.nanmin(lats)) if lats.size else bbox[1]
+    lat_max = float(np.nanmax(lats)) if lats.size else bbox[3]
+
+    lon_min = min(lon_min, bbox[0])
+    lon_max = max(lon_max, bbox[2])
+    lat_min = min(lat_min, bbox[1])
+    lat_max = max(lat_max, bbox[3])
+
+    span_lon = max(lon_max - lon_min, 0.5)
+    span_lat = max(lat_max - lat_min, 0.5)
+    pad_lon = span_lon * pad_factor
+    pad_lat = span_lat * pad_factor
+
+    return [lon_min - pad_lon, lon_max + pad_lon, lat_min - pad_lat, lat_max + pad_lat]
+
+
+def bbox_to_extent(bbox: list[float]) -> list[float]:
+    west, south, east, north = bbox
+    return [west, east, south, north]
+
+
+def pick_scale(values: np.ndarray, vmin: float | None, vmax: float | None, pctl: tuple[float, float]) -> tuple[float, float]:
     finite = values[np.isfinite(values)]
     if finite.size == 0:
-        return 0.1
-    if vmax is not None and vmax > 0:
-        return float(vmax)
-    lo, hi = np.nanpercentile(np.abs(finite), [pctl[0], pctl[1]])
-    vmax_eff = max(hi, lo)
-    if vmax_eff <= 0:
-        vmax_eff = float(np.nanmax(np.abs(finite))) or 0.1
-    return float(vmax_eff)
+        return -0.1, 0.1
+    if vmin is None or vmax is None:
+        lo, hi = np.nanpercentile(finite, [pctl[0], pctl[1]])
+        vmin_eff = float(vmin if vmin is not None else lo)
+        vmax_eff = float(vmax if vmax is not None else hi)
+    else:
+        vmin_eff, vmax_eff = float(vmin), float(vmax)
+    if vmin_eff >= vmax_eff:
+        center = float(np.nanmean(finite))
+        spread = float(np.nanstd(finite)) or 0.1
+        vmin_eff, vmax_eff = center - spread, center + spread
+    return vmin_eff, vmax_eff
 
 
 def parse_date(df: pd.DataFrame) -> str:
@@ -173,39 +212,49 @@ def ensure_truecolor(date_iso: str, directory: Path, bbox: tuple[float, float, f
 
 
 def plot_compare(csv_path: Path, truecolor_dir: Path, out_dir: Path,
-                 vmax: float | None, pctl: tuple[float, float], cmap_name: str,
-                 mask_chlor_a: bool, download_cfg: dict) -> Path | None:
+                 vmin: float | None, vmax: float | None, pctl: tuple[float, float],
+                 mask_threshold: float, cmap_name: str, download_cfg: dict,
+                 auto_extent: bool) -> Path | None:
     try:
         df = load_csv(csv_path)
     except Exception as exc:
         print(f"[error] {csv_path.name}: {exc}")
         return None
 
-    df = apply_masks(df, mask_chlor_a)
+    df = combined_mask(df, mask_threshold)
+    df = df.dropna(subset=["ssh_swot"])
     if df.empty:
-        print(f"[skip] {csv_path.name}: no valid sst_gradient")
+        print(f"[skip] {csv_path.name}: no valid ssh_swot")
         return None
 
-    lats, lons, grid = compute_grid(df)
-    vmax_eff = pick_scale(grid, vmax, pctl)
+    lats = df["lat"].to_numpy()
+    lons = df["lon"].to_numpy()
+    values = df["ssh_swot"].to_numpy()
+    vmin_eff, vmax_eff = pick_scale(values, vmin, vmax, pctl)
 
     date_iso = parse_date(df)
     if not date_iso:
         date_iso = parse_date_from_name(csv_path)
     title_date = f" - {date_iso}" if date_iso else ""
 
-    lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
-    lat_min, lat_max = float(np.nanmin(lats)), float(np.nanmax(lats))
-    extent = [lon_min, lon_max, lat_min, lat_max]
-    bbox = (lon_min, lat_min, lon_max, lat_max)
+    if auto_extent:
+        lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
+        lat_min, lat_max = float(np.nanmin(lats)), float(np.nanmax(lats))
+        pad_lon = max((lon_max - lon_min) * 0.1, 0.2)
+        pad_lat = max((lat_max - lat_min) * 0.1, 0.2)
+        extent_list = [lon_min - pad_lon, lon_max + pad_lon, lat_min - pad_lat, lat_max + pad_lat]
+    else:
+        extent_list = DEFAULT_BBOX
+    extent = bbox_to_extent(extent_list)
+    bbox = (extent_list[0], extent_list[2], extent_list[1], extent_list[3])
 
     truecolor_path = ensure_truecolor(date_iso, truecolor_dir, bbox, download_cfg)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_png = out_dir / f"compare_truecolor_sst_gradient_{csv_path.stem}.png"
+    out_png = out_dir / f"compare_truecolor_swot_{csv_path.stem}.png"
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 7), subplot_kw={"projection": ccrs.PlateCarree()})
-    ax_tc, ax_grad = axes
+    ax_tc, ax_swot = axes
 
     for ax in axes:
         ax.set_extent(extent, crs=ccrs.PlateCarree())
@@ -228,11 +277,11 @@ def plot_compare(csv_path: Path, truecolor_dir: Path, out_dir: Path,
         ax_tc.text(0.5, 0.5, "True Color not available", ha="center", va="center")
         ax_tc.set_title("True Color not available")
 
-    mesh = ax_grad.pcolormesh(lons, lats, grid, cmap=cmap_name, shading="auto",
-                               vmin=-vmax_eff, vmax=vmax_eff, transform=ccrs.PlateCarree())
-    ax_grad.set_title(f"SST Gradient{title_date}")
-    cbar = plt.colorbar(mesh, ax=ax_grad, orientation="vertical", fraction=0.046, pad=0.04)
-    cbar.set_label("SST gradient (deg C per degree)")
+    scatter = ax_swot.scatter(lons, lats, c=values, cmap=cmap_name, s=12, alpha=0.9,
+                              vmin=vmin_eff, vmax=vmax_eff, transform=ccrs.PlateCarree())
+    ax_swot.set_title(f"SWOT Sea-Surface Height{title_date}")
+    cbar = plt.colorbar(scatter, ax=ax_swot, orientation="vertical", fraction=0.046, pad=0.04)
+    cbar.set_label("SSH SWOT (m)")
 
     plt.tight_layout()
     fig.savefig(out_png, dpi=200, bbox_inches="tight")
@@ -263,12 +312,12 @@ def main() -> None:
         print(f"No feature CSV found in {features_dir} matching {args.pattern}")
         return
 
-    print(f"Generating SST gradient comparisons for {len(files)} file(s) in {out_dir} ...")
+    print(f"Generating SWOT comparisons for {len(files)} file(s) in {out_dir} ...")
     for csv_path in files:
-        plot_compare(csv_path, truecolor_dir, out_dir, args.vmax, tuple(args.pctl),
-                     args.cmap, args.mask_chlor_a, download_cfg)
+        plot_compare(csv_path, truecolor_dir, out_dir, args.vmin, args.vmax,
+                     tuple(args.pctl), args.mask_threshold, args.cmap, download_cfg,
+                     args.auto_extent)
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,100 +1,143 @@
 #!/usr/bin/env python3
-"""Visualização de Gradiente de SST (MUR) com True Color + Mapa Científico."""
+"""Generate SST gradient maps from feature CSV files."""
 
+from __future__ import annotations
+
+import argparse
 from pathlib import Path
-import numpy as np
-import xarray as xr
-import matplotlib.pyplot as plt
+
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-from datetime import datetime
-
-# Caminhos
-ROOT = Path(__file__).resolve().parents[3]
-PROC_DIR = ROOT / "data" / "processed"
-IMG_DIR = ROOT / "data" / "viz"
-TRUECOLOR_FILE = ROOT / "data" / "compare" / "MODIS_truecolor_2025-09-26.jpg"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 
-def plot_sst_gradient(nc_file: Path, truecolor_file: Path | None = None):
-    ds = xr.open_dataset(nc_file)
+def build_argparser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--features-dir", default="data/features",
+                        help="Directory containing feature CSV files")
+    parser.add_argument("--pattern", default="*_features.csv",
+                        help="Glob pattern used to locate feature CSVs")
+    parser.add_argument("--out-dir", default="data/viz/sst_gradient",
+                        help="Output directory for PNG maps")
+    parser.add_argument("--pctl", type=float, nargs=2, default=(2.0, 98.0),
+                        help="Percentiles (abs min, abs max) for symmetric scaling")
+    parser.add_argument("--vmax", type=float, default=None,
+                        help="Override for absolute maximum of the gradient scale")
+    parser.add_argument("--cmap", default="seismic",
+                        help="Matplotlib colormap name (default: seismic)")
+    parser.add_argument("--mask-chlor-a", action="store_true",
+                        help="Mask pixels lacking chlorophyll data (when available)")
+    return parser
 
-    if "sst_gradient" not in ds:
-        raise ValueError(f"{nc_file} não contém variável sst_gradient!")
 
-    grad = ds["sst_gradient"]
+def load_csv(csv_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    required = {"lat", "lon", "sst_gradient"}
+    if not required.issubset(df.columns):
+        missing = required - set(df.columns)
+        raise ValueError(f"Missing columns {missing} in {csv_path.name}")
+    return df
 
-    # Detectar coordenadas
-    lat_name = "lat" if "lat" in grad.dims else "latitude"
-    lon_name = "lon" if "lon" in grad.dims else "longitude"
 
-    lats = ds[lat_name].values
-    lons = ds[lon_name].values
-    grad_vals = np.squeeze(grad.values)
+def apply_masks(df: pd.DataFrame, mask_chlor_a: bool) -> pd.DataFrame:
+    df = df.dropna(subset=["sst_gradient"])
+    if mask_chlor_a:
+        chlor_cols = [col for col in ("chlor_a", "chlor_a_pace", "chlor_a_modis") if col in df.columns]
+        if chlor_cols:
+            mask = ~pd.isna(df[chlor_cols]).all(axis=1)
+            df = df[mask]
+    return df
 
-    # Máscara de valores inválidos
-    grad_vals = np.where(np.isnan(grad_vals), np.nan, grad_vals)
 
-    # Nome/data
+def compute_grid(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    grid = df.pivot(index="lat", columns="lon", values="sst_gradient")
+    grid = grid.reindex(index=np.sort(grid.index.values), columns=np.sort(grid.columns.values))
+    lats = grid.index.values
+    lons = grid.columns.values
+    return lats, lons, grid.values
+
+
+def pick_scale(values: np.ndarray, vmax: float | None, pctl: tuple[float, float]) -> float:
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.1
+    if vmax is not None and vmax > 0:
+        return float(vmax)
+    lo, hi = np.nanpercentile(np.abs(finite), [pctl[0], pctl[1]])
+    vmax_eff = max(hi, lo)
+    if vmax_eff <= 0:
+        vmax_eff = float(np.nanmax(np.abs(finite))) or 0.1
+    return float(vmax_eff)
+
+
+def plot_map(csv_path: Path, out_dir: Path, cmap_name: str,
+             vmax: float | None, pctl: tuple[float, float], mask_chlor_a: bool) -> Path | None:
     try:
-        raw = nc_file.name.split("-")[0][:8]  # pega AAAAMMDD
-        date = datetime.strptime(raw, "%Y%m%d").strftime("%Y-%m-%d")
-    except Exception:
-        date = "desconhecido"
+        df = load_csv(csv_path)
+        df = apply_masks(df, mask_chlor_a)
+        if df.empty:
+            print(f"[skip] {csv_path.name}: no valid sst_gradient")
+            return None
 
-    # Extent geográfico
-    lon_min, lon_max = float(lons.min()), float(lons.max())
-    lat_min, lat_max = float(lats.min()), float(lats.max())
-    extent = [lon_min, lon_max, lat_min, lat_max]
+        lats, lons, grid = compute_grid(df)
+        vmax_eff = pick_scale(grid, vmax, pctl)
 
-    # Criação dos painéis
-    fig, axes = plt.subplots(1, 2, figsize=(14, 7),
-                             subplot_kw={'projection': ccrs.PlateCarree()})
-    ax1, ax2 = axes
+        date_str = ""
+        if "date" in df.columns and not df["date"].isna().all():
+            date_str = str(df["date"].iloc[0])
 
-    # Painel 1: True Color
-    if truecolor_file and Path(truecolor_file).exists():
-        import matplotlib.image as mpimg
-        img = mpimg.imread(truecolor_file)
-        ax1.imshow(img, origin="upper", extent=extent, transform=ccrs.PlateCarree())
-        ax1.coastlines()
-        ax1.add_feature(cfeature.BORDERS, linewidth=0.5)
-        ax1.set_title(f"MODIS True Color {date}")
-    else:
-        ax1.text(0.5, 0.5, "True Color não disponível",
-                 ha="center", va="center", fontsize=12)
-        ax1.set_title("True Color")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_png = out_dir / f"{csv_path.stem}_sst_gradient_map.png"
 
-    # Painel 2: Gradiente de SST
-    cmap = plt.cm.seismic.copy()
-    cmap.set_bad("white")
+        fig = plt.figure(figsize=(9, 7))
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        extent = [float(np.min(lons)), float(np.max(lons)), float(np.min(lats)), float(np.max(lats))]
+        ax.set_extent(extent, crs=ccrs.PlateCarree())
+        try:
+            ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=0)
+            ax.add_feature(cfeature.COASTLINE, linewidth=0.6, zorder=1)
+            ax.add_feature(cfeature.BORDERS, linewidth=0.4, linestyle=":", zorder=1)
+        except Exception:
+            pass
+        gl = ax.gridlines(draw_labels=True, linewidth=0.4, color="gray", alpha=0.4, linestyle="--")
+        gl.right_labels = False
+        gl.top_labels = False
 
-    vmax = np.nanpercentile(np.abs(grad_vals), 98)  # evita extremos fora de escala
-    mesh = ax2.pcolormesh(lons, lats, grad_vals,
-                          cmap=cmap, shading="auto",
-                          vmin=-vmax, vmax=vmax,
-                          transform=ccrs.PlateCarree())
+        mesh = ax.pcolormesh(lons, lats, grid, cmap=cmap_name, shading="auto",
+                              vmin=-vmax_eff, vmax=vmax_eff, transform=ccrs.PlateCarree())
+        cbar = plt.colorbar(mesh, ax=ax, orientation="vertical", pad=0.02)
+        cbar.set_label("SST gradient (deg C per degree)")
 
-    ax2.coastlines()
-    ax2.add_feature(cfeature.BORDERS, linewidth=0.5)
-    ax2.gridlines(draw_labels=True, linewidth=0.5, color="gray", alpha=0.5, linestyle="--")
+        title = "SST Gradient"
+        if date_str:
+            title += f" — {date_str}"
+        ax.set_title(title)
 
-    cbar = plt.colorbar(mesh, ax=ax2, orientation="vertical", shrink=0.8)
-    cbar.set_label("Gradiente SST (°C/km)")  # ajuste unidade conforme cálculo
+        fig.savefig(out_png, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[ok] {out_png}")
+        return out_png
+    except Exception as exc:
+        print(f"[error] failed for {csv_path.name}: {exc}")
+        return None
 
-    ax2.set_title(f"SST Gradient {date}")
 
-    out_path = IMG_DIR / f"sst_gradient_map_{date}.png"
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-    plt.close()
-    print(f"✅ Mapa salvo em {out_path}")
+def main() -> None:
+    args = build_argparser().parse_args()
+    features_dir = Path(args.features_dir)
+    out_dir = Path(args.out_dir)
+    files = sorted(features_dir.glob(args.pattern))
+    if not files:
+        print(f"No feature CSV found in {features_dir} matching {args.pattern}")
+        return
+
+    print(f"Generating SST gradient maps for {len(files)} file(s) into {out_dir} ...")
+    for csv_path in files:
+        plot_map(csv_path, out_dir, args.cmap, args.vmax, tuple(args.pctl), args.mask_chlor_a)
 
 
 if __name__ == "__main__":
-    print("PROC_DIR ->", PROC_DIR.resolve())
-    # usa o mesmo arquivo do SST processado
-    nc_file = next(PROC_DIR.glob("**/*sst*proc.nc"))
-    truecolor_file = TRUECOLOR_FILE
-    plot_sst_gradient(nc_file, truecolor_file)
+    main()
+

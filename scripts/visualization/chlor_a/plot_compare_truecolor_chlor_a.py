@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare MODIS True Color imagery with SST gradient maps from feature CSVs."""
+"""Compare MODIS True Color imagery with combined chlorophyll-a maps."""
 
 from __future__ import annotations
 
@@ -27,16 +27,16 @@ def build_argparser() -> argparse.ArgumentParser:
                         help="Glob pattern for feature CSV selection")
     parser.add_argument("--truecolor-dir", default="data/compare",
                         help="Directory to read/write MODIS true color images")
-    parser.add_argument("--out-dir", default="data/viz/sst_gradient",
+    parser.add_argument("--out-dir", default="data/viz/chlor_a",
                         help="Directory for comparison PNGs")
-    parser.add_argument("--pctl", type=float, nargs=2, default=(2.0, 98.0),
-                        help="Percentiles (abs min, abs max) for symmetric scaling")
+    parser.add_argument("--vmin", type=float, default=None,
+                        help="Fixed minimum for chlor_a color scale")
     parser.add_argument("--vmax", type=float, default=None,
-                        help="Override absolute maximum for gradient scale")
-    parser.add_argument("--cmap", default="seismic",
-                        help="Colormap for gradient visualization")
-    parser.add_argument("--mask-chlor-a", action="store_true",
-                        help="Mask pixels lacking chlorophyll data (when available)")
+                        help="Fixed maximum for chlor_a color scale")
+    parser.add_argument("--pctl", type=float, nargs=2, default=(2.0, 98.0),
+                        help="Percentiles (min,max) used when vmin/vmax are not provided")
+    parser.add_argument("--time-column", default="date",
+                        help="Column to extract date information (default: date)")
     parser.add_argument("--disable-download", action="store_true",
                         help="Skip automatic true color download when image is missing")
     parser.add_argument("--wms-base-url", default="https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
@@ -51,6 +51,8 @@ def build_argparser() -> argparse.ArgumentParser:
                         help="Timeout (seconds) per download attempt")
     parser.add_argument("--download-retries", type=int, default=2,
                         help="Retry attempts when download fails")
+    parser.add_argument("--cmap", default="viridis",
+                        help="Colormap for chlor_a visualization (default: viridis)")
     return parser
 
 
@@ -60,62 +62,62 @@ def iter_files(directory: Path, pattern: str) -> Iterable[Path]:
 
 def load_csv(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
-    required = {"lat", "lon", "sst_gradient"}
-    if not required.issubset(df.columns):
-        missing = required - set(df.columns)
-        raise ValueError(f"Missing columns {missing} in {csv_path.name}")
+    if "chlor_a" not in df.columns and not ({"chlor_a_modis", "chlor_a_pace"} & set(df.columns)):
+        raise ValueError(f"{csv_path.name} missing chlor_a columns")
+    if not {"lat", "lon"}.issubset(df.columns):
+        raise ValueError(f"{csv_path.name} missing lat/lon columns")
     return df
 
 
-def apply_masks(df: pd.DataFrame, mask_chlor_a: bool) -> pd.DataFrame:
-    df = df.dropna(subset=["sst_gradient"])
-    if mask_chlor_a:
-        chlor_cols = [col for col in ("chlor_a", "chlor_a_pace", "chlor_a_modis") if col in df.columns]
-        if chlor_cols:
-            mask = ~pd.isna(df[chlor_cols]).all(axis=1)
-            df = df[mask]
-    return df
+def combined_chlor_a(df: pd.DataFrame) -> pd.Series:
+    if "chlor_a" in df.columns:
+        return df["chlor_a"]
+    sources = {}
+    for col in ("chlor_a_pace", "chlor_a_modis"):
+        if col in df.columns:
+            sources[col] = df[col]
+    if not sources:
+        raise ValueError("No chlor_a sources available")
+    stacked = pd.DataFrame(sources)
+    combined = stacked.sum(axis=1, skipna=True)
+    combined[stacked.isna().all(axis=1)] = np.nan
+    return combined.astype("float32")
 
 
-def compute_grid(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    grid = df.pivot(index="lat", columns="lon", values="sst_gradient")
+def compute_grid(df: pd.DataFrame, values: pd.Series) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    df_local = df.copy()
+    df_local["chlor_a_combined"] = values
+    grid = df_local.pivot(index="lat", columns="lon", values="chlor_a_combined")
     grid = grid.reindex(index=np.sort(grid.index.values), columns=np.sort(grid.columns.values))
     lats = grid.index.values
     lons = grid.columns.values
     return lats, lons, grid.values
 
 
-def pick_scale(values: np.ndarray, vmax: float | None, pctl: tuple[float, float]) -> float:
+def pick_scale(values: np.ndarray, vmin: float | None, vmax: float | None, pctl: tuple[float, float]) -> tuple[float, float]:
     finite = values[np.isfinite(values)]
     if finite.size == 0:
-        return 0.1
-    if vmax is not None and vmax > 0:
-        return float(vmax)
-    lo, hi = np.nanpercentile(np.abs(finite), [pctl[0], pctl[1]])
-    vmax_eff = max(hi, lo)
-    if vmax_eff <= 0:
-        vmax_eff = float(np.nanmax(np.abs(finite))) or 0.1
-    return float(vmax_eff)
+        return 0.0, 1.0
+    if vmin is None or vmax is None:
+        lo, hi = np.nanpercentile(finite, [pctl[0], pctl[1]])
+        vmin_eff = float(vmin if vmin is not None else lo)
+        vmax_eff = float(vmax if vmax is not None else hi)
+    else:
+        vmin_eff, vmax_eff = float(vmin), float(vmax)
+    if vmin_eff >= vmax_eff:
+        vmin_eff = float(np.nanmin(finite))
+        vmax_eff = float(np.nanmax(finite))
+    return vmin_eff, vmax_eff
 
 
-def parse_date(df: pd.DataFrame) -> str:
-    if "date" in df.columns and not df["date"].isna().all():
-        value = str(df["date"].iloc[0])
+def parse_date(df: pd.DataFrame, column: str, fallback: str) -> str:
+    if column in df.columns and not df[column].isna().all():
+        value = str(df[column].iloc[0])
         try:
             return datetime.fromisoformat(value).date().isoformat()
         except Exception:
             return value
-    return ""
-
-
-def parse_date_from_name(path: Path) -> str:
-    digits = "".join(ch for ch in path.stem if ch.isdigit())
-    if len(digits) >= 8:
-        try:
-            return datetime.strptime(digits[:8], "%Y%m%d").strftime("%Y-%m-%d")
-        except ValueError:
-            return ""
-    return ""
+    return fallback
 
 
 def find_truecolor(date_iso: str, directory: Path) -> Path | None:
@@ -173,25 +175,32 @@ def ensure_truecolor(date_iso: str, directory: Path, bbox: tuple[float, float, f
 
 
 def plot_compare(csv_path: Path, truecolor_dir: Path, out_dir: Path,
-                 vmax: float | None, pctl: tuple[float, float], cmap_name: str,
-                 mask_chlor_a: bool, download_cfg: dict) -> Path | None:
+                 vmin: float | None, vmax: float | None, pctl: tuple[float, float],
+                 date_column: str, download_cfg: dict, cmap_name: str) -> Path | None:
     try:
         df = load_csv(csv_path)
     except Exception as exc:
         print(f"[error] {csv_path.name}: {exc}")
         return None
 
-    df = apply_masks(df, mask_chlor_a)
+    combined = combined_chlor_a(df)
+    df = df.assign(chlor_a_combined=combined).dropna(subset=["chlor_a_combined"])
     if df.empty:
-        print(f"[skip] {csv_path.name}: no valid sst_gradient")
+        print(f"[skip] {csv_path.name}: no valid chlor_a")
         return None
 
-    lats, lons, grid = compute_grid(df)
-    vmax_eff = pick_scale(grid, vmax, pctl)
+    lats, lons, grid = compute_grid(df, df["chlor_a_combined"])
+    vmin_eff, vmax_eff = pick_scale(grid, vmin, vmax, pctl)
 
-    date_iso = parse_date(df)
-    if not date_iso:
-        date_iso = parse_date_from_name(csv_path)
+    date_from_name = ""
+    digits = "".join(ch for ch in csv_path.stem if ch.isdigit())
+    if len(digits) >= 8:
+        try:
+            date_from_name = datetime.strptime(digits[:8], "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            date_from_name = ""
+
+    date_iso = parse_date(df, date_column, date_from_name)
     title_date = f" - {date_iso}" if date_iso else ""
 
     lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
@@ -202,19 +211,19 @@ def plot_compare(csv_path: Path, truecolor_dir: Path, out_dir: Path,
     truecolor_path = ensure_truecolor(date_iso, truecolor_dir, bbox, download_cfg)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_png = out_dir / f"compare_truecolor_sst_gradient_{csv_path.stem}.png"
+    out_png = out_dir / f"compare_truecolor_chlor_a_{csv_path.stem}.png"
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 7), subplot_kw={"projection": ccrs.PlateCarree()})
-    ax_tc, ax_grad = axes
+    ax_tc, ax_chl = axes
 
     for ax in axes:
         ax.set_extent(extent, crs=ccrs.PlateCarree())
         ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=0)
         ax.add_feature(cfeature.COASTLINE, linewidth=0.6, zorder=1)
         ax.add_feature(cfeature.BORDERS, linewidth=0.4, linestyle=":", zorder=1)
-        gl = ax.gridlines(draw_labels=True, linewidth=0.4, color="gray", alpha=0.4, linestyle="--")
-        gl.top_labels = False
-        gl.right_labels = False
+        gridlines = ax.gridlines(draw_labels=True, linewidth=0.4, color="gray", alpha=0.4, linestyle="--")
+        gridlines.top_labels = False
+        gridlines.right_labels = False
 
     if truecolor_path and truecolor_path.exists():
         try:
@@ -228,11 +237,11 @@ def plot_compare(csv_path: Path, truecolor_dir: Path, out_dir: Path,
         ax_tc.text(0.5, 0.5, "True Color not available", ha="center", va="center")
         ax_tc.set_title("True Color not available")
 
-    mesh = ax_grad.pcolormesh(lons, lats, grid, cmap=cmap_name, shading="auto",
-                               vmin=-vmax_eff, vmax=vmax_eff, transform=ccrs.PlateCarree())
-    ax_grad.set_title(f"SST Gradient{title_date}")
-    cbar = plt.colorbar(mesh, ax=ax_grad, orientation="vertical", fraction=0.046, pad=0.04)
-    cbar.set_label("SST gradient (deg C per degree)")
+    mesh = ax_chl.pcolormesh(lons, lats, grid, cmap=cmap_name, shading="auto",
+                              vmin=vmin_eff, vmax=vmax_eff, transform=ccrs.PlateCarree())
+    ax_chl.set_title(f"Chlorophyll-a{title_date}")
+    cbar = plt.colorbar(mesh, ax=ax_chl, orientation="vertical", fraction=0.046, pad=0.04)
+    cbar.set_label("Chlor_a (mg m^-3)")
 
     plt.tight_layout()
     fig.savefig(out_png, dpi=200, bbox_inches="tight")
@@ -263,12 +272,11 @@ def main() -> None:
         print(f"No feature CSV found in {features_dir} matching {args.pattern}")
         return
 
-    print(f"Generating SST gradient comparisons for {len(files)} file(s) in {out_dir} ...")
+    print(f"Generating chlor_a comparisons for {len(files)} file(s) in {out_dir} ...")
     for csv_path in files:
-        plot_compare(csv_path, truecolor_dir, out_dir, args.vmax, tuple(args.pctl),
-                     args.cmap, args.mask_chlor_a, download_cfg)
+        plot_compare(csv_path, truecolor_dir, out_dir, args.vmin, args.vmax,
+                     tuple(args.pctl), args.time_column, download_cfg, args.cmap)
 
 
 if __name__ == "__main__":
     main()
-

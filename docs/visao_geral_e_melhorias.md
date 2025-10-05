@@ -6,6 +6,8 @@ Este documento resume, de forma pratica, o que o projeto faz hoje, como a pipeli
 
 ## Atualizacoes recentes (2025-09-30)
 
+- Otimizei scripts/02_preprocess.py:1 (chunks/dask + float32 + compressão) para evitar estouro de RAM.
+- Integrei MODIS CHL (download, pre-processamento, features e export); o modelo agora usa `chlor_a` além de SST.
 
 - Atualizei config/config.yaml:1 para 2025-09-20→2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
 - Corrigi imports nos scripts/pipeline/visualizacao (fallback sys.path) e adicionei --date nas comparacoes, eliminando ModuleNotFoundError.

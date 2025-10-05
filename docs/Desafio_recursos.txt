@@ -1,0 +1,48 @@
+Desafio:
+
+Resumo
+O oceano da Terra é um dos habitats mais poderosos do nosso universo, abrigando uma variedade de vida que sustenta ecossistemas e habitabilidade em todo o globo. É comum medir a atividade fotossintética no oceano a partir do espaço, mas é muito mais desafiador rastrear os principais predadores. Seu desafio é criar uma estrutura matemática para identificar tubarões e prever seus habitats de alimentação usando dados de satélite da NASA, e também sugerir um novo modelo conceitual de uma etiqueta (um pequeno dispositivo eletrônico que pode ser acoplado a um animal para rastrear e estudar seus movimentos) que possa medir não apenas onde os tubarões estão, mas também o que eles estão comendo, e transmitir esses dados em tempo real aos usuários para permitir o desenvolvimento de modelos preditivos.
+
+Fundo
+Os tubarões são importantes predadores de topo, regulando os níveis de presas e garantindo a diversidade de espécies necessária para ecossistemas saudáveis. Os tubarões também enfrentam uma pressão pesqueira sem precedentes, e determinar onde os tubarões se alimentam e se movimentam é fundamental para proteger habitats cruciais para eles. Seria útil identificar pontos críticos de forrageamento e quantificar as ligações ecológicas entre características oceanográficas físicas, comunidades fitoplanctônicas e padrões de movimento de predadores. Dados da missão Surface Water and Ocean Topography (SWOT), bem como da missão Plankton, Aerosols, Clouds, and Ecosystems (PACE), podem ser usados ​​para rastrear redemoinhos no oceano onde os tubarões podem escolher viver.
+
+Existem várias etapas tróficas (ou seja, etapas na cadeia alimentar) entre o fitoplâncton (facilmente visíveis nos dados do PACE) e os tubarões, portanto, um modelo matemático/fisicamente realista para o comportamento de forrageamento dos tubarões deve levar isso em consideração. Existem também diversas variáveis ​​que potencialmente afetam o comportamento dos tubarões. Por exemplo, quando os tubarões estão na superfície e quando podem querer estar mais profundamente no oceano? Qual o papel que a temperatura pode desempenhar? Quais são as consequências ecológicas de suas localizações e comportamentos?
+
+Objetivos
+Seu desafio é criar uma estrutura matemática para identificar tubarões e prever seus habitats de alimentação usando dados de satélite da NASA, e também sugerir um novo modelo conceitual de uma etiqueta (um pequeno dispositivo eletrônico que pode ser anexado a um animal para rastrear e estudar seu movimento) que poderia medir não apenas onde os tubarões estão, mas também o que eles estão comendo, e transmitir esses dados aos usuários em tempo real para permitir o desenvolvimento de modelos preditivos.
+
+Você consegue identificar pontos críticos de forrageamento e quantificar as ligações ecológicas entre características oceanográficas físicas, comunidades fitoplanctônicas e padrões de movimento de predadores? Você poderia até mesmo criar uma nova medição por satélite que ajudaria a identificar esses habitats cruciais para tubarões!
+
+Seu projeto pode ter uma aparência diferente dependendo do que você investigar. Por exemplo, você pode apresentar suas hipóteses e resultados preliminares baseados em dados em um vídeo curto. Ou você pode construir e executar um modelo matemático simples que use dados de satélite como entrada e gere produtos gráficos que mostrem as relações entre a atividade dos tubarões e as variáveis ​​da superfície do mar. Você também pode desenvolver mapas globais da atividade esperada dos tubarões. Mas, independentemente disso, não se esqueça de usar produtos de satélite da NASA como entrada!
+
+Considerações potenciais
+Você pode (mas não é obrigado a) considerar o seguinte:
+
+Seu público-alvo são estudantes do ensino médio e a comunidade em geral. Você pode explicar o seguinte a esse público:
+Por que os tubarões são importantes e por que prever sua localização é importante?
+Como previsões aprimoradas da localização dos tubarões podem afetar as decisões tomadas pelos humanos?
+
+
+Recursos:
+
+Dados e recursos da NASA
+Dados do Plankton Aerosols Clouds and Ecosystems (PACE) sobre abundância e composição da comunidade de fitoplâncton :O satélite PACE foi lançado em fevereiro de 2024. Ele fornece cobertura sem precedentes para composições da comunidade de fitoplâncton.
+
+Dados do espectrorradiômetro de imagens de resolução moderada (MODIS)-Aqua para abundância de fitoplâncton : o MODIS-Aqua está em operação há pouco mais de duas décadas e fornece uma excelente série temporal para comparar tendências.
+
+Dados de Águas Superficiais e Topografia Oceânica (SWOT) para rastreamento de vórtices : observações SWOT podem ser usadas para compreender melhor as correntes e processos oceânicos que ocorrem em escalas espaciais da ordem de 15 a 150 km, algo inédito até então. A SWOT permite o monitoramento de alta resolução (dentro de um quilômetro da terra) de regiões costeiras, incluindo correntes costeiras, marés de tempestade e mudanças regionais no nível do mar.
+
+“Os redemoinhos de mesoescala libertam os tubarões pelágicos das restrições térmicas para a procura de alimento na zona crepuscular do oceano,”Braun, CD, Gaube, P., Sinclair-Taylor, TH, Skomal, GB, e Thorrold, SR (2019). Proceedings of the National Academy of Sciences, 116(35), 17187-17192: Este artigo explora como dados de satélite e informações de rastreamento mostram que os tubarões usam redemoinhos quentes como um canal para forragear nas profundezas do oceano.
+
+“Os redemoinhos de mesoescala influenciam os movimentos das fêmeas adultas de tubarão branco na Corrente do Golfo e no Mar dos Sargaços”,Gaube, P., Braun, CD, Lawson, GL, McGillicuddy Jr, DJ, Penna, AD, Skomal, GB e Thorrold, SR (2018). Scientific reports , 8 (1), 7363: Este artigo explora os movimentos de dois tubarões-brancos marcados enquanto viajavam pela região da Corrente do Golfo e pelo Mar dos Sargaços, no Oceano Atlântico Norte.
+
+Recursos de parceiros da agência espacial
+Agência Espacial Canadense (CSA)
+
+smartWhales: Usando o espaço para manter as baleias seguras: Um exemplo de como a Agência Espacial Canadense apoia esforços para proteger baleias usando dados de satélite.
+
+Monitoramento e proteção do nosso ecossistema do espaço: Este site fornece mais informações sobre como os dados de satélite podem ajudar a monitorar mudanças e promover o uso responsável da terra e dos recursos naturais para proteger o ecossistema.
+
+Topografia de águas superficiais e oceânicas (SWOT) - Portal de dados: A missão Águas Superficiais e Topografia Oceânica (SWOT) fornece dados e informações valiosas sobre os oceanos do mundo e suas águas superficiais terrestres. Um tutorial sobre o uso desses dados pode ser encontrado neste link.
+
+Informações sobre a missão de topografia de águas superficiais e oceânicas (SWOT): A missão Topografia Oceânica e de Águas Superficiais (SWOT) está nos fornecendo informações novas e detalhadas sobre um dos recursos mais importantes que compartilhamos: a água. Liderada pela NASA e pela agência espacial francesa (CNES), em colaboração com a CSA e a Agência Espacial do Reino Unido, a missão SWOT analisa 90% das águas superficiais da Terra, medindo as mudanças na elevação da superfície da água em lagos, rios, reservatórios e oceanos ao longo do tempo.

@@ -1,11 +1,23 @@
-#!/usr/bin/env python3
-"""Pre-processamento de SST: recorte por bbox, conversao para Celsius e gradiente por timestep."""
+﻿#!/usr/bin/env python3
+"""Pre-processamento de SST, MODIS, PACE e SWOT:
+- Recorte por bbox
+- Conversão para Celsius (SST)
+- Gradiente por timestep (SST) com Dask (rechunk lat/lon)
+- Mantém SWOT como pontos brutos (sem interpolação para grid)
+- Junta múltiplos passes SWOT por dia em 1 arquivo diário
+- Exporta NetCDF compactado em data/processed/
+"""
 
 from __future__ import annotations
-
 from pathlib import Path
 import sys
+import re
+import numpy as np
+import xarray as xr
+from typing import Iterable, Dict, List
+from collections import defaultdict
 
+# ---------------- bootstrap ----------------
 _THIS_FILE = Path(__file__).resolve()
 for _parent in _THIS_FILE.parents:
     if _parent.name == "scripts":
@@ -17,16 +29,10 @@ else:
 if str(_PROJECT_ROOT_FALLBACK) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT_FALLBACK))
 
-from typing import Iterable, Tuple
-
-import numpy as np
-import xarray as xr
-
 if __package__ is None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.utils import get_bbox, load_config, project_root
-
 
 ROOT = project_root()
 CFG = load_config()
@@ -37,14 +43,17 @@ PROC_DIR.mkdir(parents=True, exist_ok=True)
 
 BBOX = get_bbox(CFG) or [-80.0, 25.0, -60.0, 40.0]
 
-
 LAT_CANDIDATES = ("lat", "latitude")
 LON_CANDIDATES = ("lon", "longitude")
 
+# ============== helpers gerais ==============
+
+def sanitize_var_name(name: str) -> str:
+    sanitized = re.sub(r"[^a-z0-9]+", "_", name.lower())
+    return sanitized.strip("_") or "pft"
+
 
 def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
-    """Return the first coordinate name that matches any candidate."""
-
     for name in candidates:
         if name in data.coords:
             return name
@@ -54,107 +63,223 @@ def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
             return dim
     raise KeyError(f"Nenhuma coordenada encontrada para candidatos {candidates} em {data.dims}")
 
-
 def ensure_sorted(da: xr.DataArray, coord: str) -> xr.DataArray:
-    """Garantir que a coordenada esteja em ordem crescente."""
-
-    values = da[coord]  # type: ignore[index]
+    values = da[coord]
     if values[0] > values[-1]:
         return da.sortby(coord)
     return da
 
-
 def clip_bbox(da: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
-    """Aplicar recorte espacial respeitando a orientacao das coordenadas."""
-
     west, south, east, north = BBOX
-
     da = ensure_sorted(da, lon_name)
     da = ensure_sorted(da, lat_name)
-
-    lon_slice = slice(west, east)
-    lat_slice = slice(south, north)
-
-    return da.sel({lon_name: lon_slice, lat_name: lat_slice})
-
+    return da.sel({lon_name: slice(west, east), lat_name: slice(south, north)})
 
 def convert_to_celsius(da: xr.DataArray) -> xr.DataArray:
-    """Converter para graus Celsius quando os valores aparentam estar em Kelvin."""
-
-    if float(da.max()) > 200.0:
+    max_val = float(da.max().compute() if hasattr(da.data, "compute") else da.max())
+    if max_val > 200.0:
         da = da - 273.15
         da.attrs["units"] = "degree_Celsius"
     return da
 
-
 def gradient_magnitude(field: xr.DataArray, lat_name: str, lon_name: str) -> xr.DataArray:
-    """Calcular |gradiente| para cada timestep preservando dimensoes."""
-
-    core = [lat_name, lon_name]
+    """|gradiente| com Dask; garante 1 chunk em lat/lon (evita erro core dimension)."""
+    if field.sizes[lat_name] <= 1 or field.sizes[lon_name] <= 1:
+        return xr.full_like(field, np.nan)
 
     def _gradient(arr: np.ndarray) -> np.ndarray:
         d_dy, d_dx = np.gradient(arr)
         return np.sqrt(d_dx**2 + d_dy**2)
 
+    field_rechunked = field.chunk({lat_name: -1, lon_name: -1})
+
     grad = xr.apply_ufunc(
         _gradient,
-        field,
-        input_core_dims=[core],
-        output_core_dims=[core],
+        field_rechunked,
+        input_core_dims=[[lat_name, lon_name]],
+        output_core_dims=[[lat_name, lon_name]],
         vectorize=True,
         dask="parallelized",
+        dask_gufunc_kwargs={"allow_rechunk": False},
         output_dtypes=[float],
     )
     grad.name = "sst_gradient"
     grad.attrs["description"] = "Modulo do gradiente calculado com np.gradient"
     return grad
 
+# ============== SWOT helpers ==============
 
-def preprocess_file(file_path: Path) -> Path:
-    """Processar um unico arquivo NetCDF e salvar em data/processed."""
+def normalize_lon_180(lon: np.ndarray) -> np.ndarray:
+    """Converte longitudes de [0,360] para [-180,180]."""
+    return ((lon + 180.0) % 360.0) - 180.0
 
+def _bbox_mask(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    west, south, east, north = BBOX
+    return (lat >= south) & (lat <= north) & (lon >= west) & (lon <= east)
+
+def load_swot_points(file_path: Path, stride: int = 6) -> xr.Dataset | None:
+    """Extrai pontos (lat, lon, ssh) dos grupos left/right de um arquivo SWOT L2."""
+    all_lat, all_lon, all_ssh = [], [], []
+
+    for side in ["left", "right"]:
+        with xr.open_dataset(file_path, group=side) as ds_side:
+            lat = ds_side["latitude"].values[::stride, ::stride]
+            lon = ds_side["longitude"].values[::stride, ::stride]
+            ssh = ds_side["ssh_karin"].values[::stride, ::stride]
+
+            lon = normalize_lon_180(lon)
+
+            mask = _bbox_mask(lat, lon)
+            mask &= np.isfinite(lat) & np.isfinite(lon) & np.isfinite(ssh)
+
+            if not np.any(mask):
+                continue
+
+            all_lat.append(lat[mask].astype(np.float32))
+            all_lon.append(lon[mask].astype(np.float32))
+            all_ssh.append(ssh[mask].astype(np.float32))
+
+    if not all_lat:
+        return None
+
+    lat_cat = np.concatenate(all_lat)
+    lon_cat = np.concatenate(all_lon)
+    ssh_cat = np.concatenate(all_ssh)
+
+    if lat_cat.size < 3:
+        return None
+
+    print(f"[SWOT] {file_path.name}: {lat_cat.size} pontos válidos no bbox (lon normalizado)")
+    return xr.Dataset(
+        {
+            "lat": (("points",), lat_cat),
+            "lon": (("points",), lon_cat),
+            "ssh": (("points",), ssh_cat),
+        }
+    )
+
+# ============== processamento arquivo-a-arquivo ==============
+
+def preprocess_file(file_path: Path):
     print(f"Processando {file_path.name} ...")
 
-    with xr.open_dataset(file_path) as ds:
-        if "analysed_sst" in ds.variables:
-            sst = ds["analysed_sst"].load()
-        elif "sst" in ds.variables:
-            sst = ds["sst"].load()
+    if "SSTfnd-MUR" in file_path.name:
+        with xr.open_dataset(file_path, chunks={"time": 1}, decode_timedelta=False) as ds:
+            var_name = "analysed_sst" if "analysed_sst" in ds.variables else "sst"
+            field = ds[var_name]
+            lat_name = detect_coordinate(field, LAT_CANDIDATES)
+            lon_name = detect_coordinate(field, LON_CANDIDATES)
+            field = clip_bbox(field, lat_name, lon_name)
+            field = convert_to_celsius(field)
+            grad = gradient_magnitude(field, lat_name, lon_name)
+            out = xr.Dataset({"sst": field, "sst_gradient": grad})
+
+        out_path = PROC_DIR / (file_path.stem + "_proc.nc")
+        encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
+        out.to_netcdf(out_path, encoding=encoding, compute=True)
+        print(f"✅ Arquivo processado salvo em {out_path}")
+        return out_path
+
+    if "CHL-MODIS" in file_path.name or "CHL-PACE" in file_path.name:
+        with xr.open_dataset(file_path) as ds:
+            varname = list(ds.data_vars)[0]
+            field = ds[varname]
+            lat_name = detect_coordinate(field, LAT_CANDIDATES)
+            lon_name = detect_coordinate(field, LON_CANDIDATES)
+            field = clip_bbox(field, lat_name, lon_name)
+            out = xr.Dataset({varname: field})
+
+        out_path = PROC_DIR / (file_path.stem + "_proc.nc")
+        encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
+        out.to_netcdf(out_path, encoding=encoding, compute=True)
+        print(f"[ok] Arquivo processado salvo em {out_path}")
+        return out_path
+
+    if "MOANA-PACE" in file_path.name:
+        data_vars = {}
+        with xr.open_dataset(file_path) as ds:
+            for var_name, da in ds.data_vars.items():
+                if da.ndim < 2:
+                    continue
+                try:
+                    lat_name = detect_coordinate(da, LAT_CANDIDATES)
+                    lon_name = detect_coordinate(da, LON_CANDIDATES)
+                except KeyError:
+                    continue
+                field = clip_bbox(da, lat_name, lon_name)
+                sanitized = f"moana_{sanitize_var_name(var_name)}"
+                data_vars[sanitized] = field.astype(np.float32)
+
+        if not data_vars:
+            print(f"[warn] Nenhum dado MOANA valido em {file_path.name}")
+            return None
+
+        out = xr.Dataset(data_vars)
+        out_path = PROC_DIR / (file_path.stem + "_proc.nc")
+        encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
+        out.to_netcdf(out_path, encoding=encoding, compute=True)
+        print(f"[ok] Arquivo processado salvo em {out_path}")
+        return out_path
+
+    if "SSH-SWOT" in file_path.name:
+        digits = "".join([c for c in file_path.name if c.isdigit()])[:8]
+        ds_pts = load_swot_points(file_path, stride=6)
+        if ds_pts is not None:
+            print(f"[SWOT] adicionando {file_path.name} ao dia {digits}")
+            return ("SWOT", digits, ds_pts)
         else:
-            raise ValueError("Variavel de SST nao encontrada no arquivo")
+            print(f"[SWOT] {file_path.name}: nenhum ponto válido no bbox")
+            return None
 
-    lat_name = detect_coordinate(sst, LAT_CANDIDATES)
-    lon_name = detect_coordinate(sst, LON_CANDIDATES)
+    print(f"⚠️ Arquivo não reconhecido: {file_path.name}")
+    return None
 
-    sst = convert_to_celsius(sst)
-    sst = clip_bbox(sst, lat_name, lon_name)
+# ============== main ==============
 
-    grad = gradient_magnitude(sst, lat_name, lon_name)
-
-    out = xr.Dataset({"sst": sst, "sst_gradient": grad})
-    out.attrs["source_file"] = file_path.name
-    out.attrs["bbox"] = BBOX
-
-    out_path = PROC_DIR / f"{file_path.stem}_proc.nc"
-    out.to_netcdf(out_path)
-    print(f"Arquivo processado salvo em {out_path}")
-    return out_path
-
-
-def main() -> None:
-    files = sorted(RAW_DIR.glob("*.nc"))
+def main():
+    files = sorted(RAW_DIR.glob("**/*.nc"))
     if not files:
         print("Nenhum arquivo bruto encontrado em data/raw/")
         return
 
+    print(f"\n{'='*60}")
+    print(f"Encontrados {len(files)} arquivo(s) para processar")
+    print(f"{'='*60}\n")
+
+    processed, failed = 0, 0
+    swot_by_day: Dict[str, List[xr.Dataset]] = defaultdict(list)
+
     for file_path in files:
         try:
-            preprocess_file(file_path)
+            result = preprocess_file(file_path)
+            if isinstance(result, tuple) and result[0] == "SWOT":
+                _, digits, ds_pts = result
+                swot_by_day[digits].append(ds_pts)
+            elif result:
+                processed += 1
         except Exception as exc:
-            print(f"Falha ao processar {file_path.name}: {exc}")
+            print(f"❌ Falha ao processar {file_path.name}: {exc}")
+            failed += 1
 
-    print("Pre-processamento concluido. Arquivos em data/processed/")
+    for date, datasets in swot_by_day.items():
+        try:
+            print(f"[SWOT] Combinando {len(datasets)} passes para {date}")
+            ds_points = xr.concat(datasets, dim="points")
+            out_path = PROC_DIR / f"{date}_SSH-SWOT_points.nc"
+            encoding = {var: {"zlib": True, "complevel": 4} for var in ds_points.data_vars}
+            ds_points.to_netcdf(out_path, encoding=encoding, compute=True)
+            print(f"✅ SWOT pontos brutos salvo em {out_path}")
+            processed += 1
+        except Exception as exc:
+            print(f"❌ Falha ao combinar SWOT {date}: {exc}")
+            failed += 1
 
+    print(f"\n{'='*60}")
+    print("🏁 Pre-processamento concluído!")
+    print(f"   ✅ Processados: {processed}")
+    print(f"   ❌ Falhas: {failed}")
+    print(f"   📂 Arquivos em: {PROC_DIR}")
+    print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     main()

@@ -22,6 +22,7 @@ joblib
 matplotlib
 seaborn
 plotly
+cartopy
 
 # NASA / Earthdata tooling
 earthaccess

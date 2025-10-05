@@ -44,3 +44,19 @@
 - 2025-09-30 - Atualizei config/config.yaml:1 para 2025-09-20→2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
 - 2025-09-30 - Ajustei scripts pipeline/visualizacao com fallback de sys.path e argumento --date em compare_probability_vs_truecolor.py:1 (sem ModuleNotFoundError).
 
+
+- 2025-09-30 — Integrei MODIS CHL: 01_search_download.py agora baixa clorofila, 02_preprocess.py processa chlor_a, 03_feature_engineering.py combina SST/gradiente/CHL e 05_export_tiles.py interpola CHL na hora da previsão.
+
+- 2025-09-30 — Ajustei config/config.yaml:1 para `max_granules_per_source = 1` a fim de evitar múltiplos granules MODIS por dia.
+
+- 2025-09-30 — Voltei `max_granules_per_source` para 10 e dedupei MODIS L3 CHL no download (um granule por dia via temporal).
+
+- 2025-09-30 — Ajustei deduplicação de MODIS L3 CHL usando `granule.filename`; se não houver `temporal`, gera chave pelo nome do arquivo.
+
+- 2025-09-30 — Ajustei config/config.yaml:1 para usar datas ISO (YYYY-MM-DDTHH:MM:SS) garantindo cobertura exata dos dias 26-27/set.
+
+- 2025-09-30 — Otimizei scripts/02_preprocess.py:1 (uso de chunks Dask, sem .load(), float32 + compressão) para reduzir memória.
+- 2025-10-03 - Atualizei scripts/02_preprocess.py:1 para manter apenas pontos SWOT e reescrevi scripts/03_feature_engineering.py:1 projetando esses pontos na grade sem extrapolar valores.
+- 2025-10-03 - Atualizei scripts/visualization/swot/plot_swot.py:1 e plot_swot_gradient.py:1 para usar Cartopy, adicionando costas, grade e máscara SWOT nas figuras.
+- 2025-10-03 - Ajustei novamente plot_swot*.py para forçar o extent ao BBOX do projeto e desenhar a caixa de referência nas figuras.
+- 2025-10-03 - Ajustei plot_swot*.py para colorir os pontos SWOT (SSH e gradiente) diretamente, mantendo o BBOX e o contexto geográfico.

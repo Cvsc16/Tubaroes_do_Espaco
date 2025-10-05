@@ -1,14 +1,14 @@
-#!/usr/bin/env python3
-"""Gera painel comparativo com todas as variáveis principais.
+﻿#!/usr/bin/env python3
+"""Gera painel comparativo com todas as variÃ¡veis principais.
 
-Painéis incluídos:
+PainÃ©is incluÃ­dos:
   - MODIS True Color (imagem real)
   - SST
   - Gradiente de SST
   - Chlorofila (PACE/MODIS coalescida)
   - SWOT SSH
 
-Uso típico:
+Uso tÃ­pico:
   python scripts/visualization/compare/plot_all_variables.py --date 2025-09-27
 """
 
@@ -29,34 +29,35 @@ import numpy as np
 import pandas as pd
 import requests
 from PIL import Image
+HAVE_CARTOPY = True
 
 
 def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--features-dir", default="data/features",
-                        help="Diretório com CSVs de features")
-    parser.add_argument("--features-file", help="CSV específico a usar")
+                        help="DiretÃ³rio com CSVs de features")
+    parser.add_argument("--features-file", help="CSV especÃ­fico a usar")
     parser.add_argument("--date", help="Data (YYYY-MM-DD) para selecionar o CSV")
     parser.add_argument("--pattern", default="*_features.csv",
-                        help="Padrão glob para --all (default: *_features.csv)")
+                        help="PadrÃ£o glob para --all (default: *_features.csv)")
     parser.add_argument("--all", action="store_true",
-                        help="Gera painéis para todos os CSVs que casam com --pattern")
+                        help="Gera painÃ©is para todos os CSVs que casam com --pattern")
     parser.add_argument("--truecolor-dir", default="data/compare",
-                        help="Diretório onde buscar/salvar imagens True Color")
+                        help="DiretÃ³rio onde buscar/salvar imagens True Color")
     parser.add_argument("--out-dir", default="data/viz/compare",
-                        help="Diretório onde salvar o PNG gerado")
+                        help="DiretÃ³rio onde salvar o PNG gerado")
     parser.add_argument("--disable-download", action="store_true",
-                        help="Não tentar baixar True Color automaticamente")
+                        help="NÃ£o tentar baixar True Color automaticamente")
     parser.add_argument("--wms-base-url", default="https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
                         help="Endpoint WMS da NASA para True Color")
     parser.add_argument("--wms-layer", default="MODIS_Aqua_CorrectedReflectance_TrueColor",
                         help="Nome da camada WMS")
     parser.add_argument("--wms-size", type=int, default=1024,
-                        help="Largura/altura (px) da requisição WMS")
+                        help="Largura/altura (px) da requisiÃ§Ã£o WMS")
     parser.add_argument("--download-timeout", type=float, default=60.0,
                         help="Timeout por tentativa de download (s)")
     parser.add_argument("--download-retries", type=int, default=2,
-                        help="Número de tentativas extra em caso de falha")
+                        help="NÃºmero de tentativas extra em caso de falha")
     return parser
 
 
@@ -90,6 +91,16 @@ def coalesce_chlorophyll(df: pd.DataFrame) -> pd.Series:
         return pd.Series(np.nan, index=df.index)
     stacked = pd.concat(sources, axis=1)
     return stacked.mean(axis=1, skipna=True)
+
+
+def compute_moana_total(df: pd.DataFrame) -> Optional[pd.Series]:
+    """Retorna biomassa total MOANA (cells ml^-1) ou None se disponivel."""
+    if "moana_total_cells" in df.columns:
+        return df["moana_total_cells"].astype(float)
+    base_cols = [col for col in ("moana_prococcus_moana", "moana_syncoccus_moana", "moana_picoeuk_moana") if col in df.columns]
+    if not base_cols:
+        return None
+    return df[base_cols].astype(float).sum(axis=1)
 
 
 def pivot_grid(df: pd.DataFrame, column: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -155,7 +166,7 @@ def download_truecolor(date_iso: str, directory: Path, bbox: list[float], cfg: d
             if attempt < cfg["retries"]:
                 print(f"[warn] falha ao baixar True Color ({date_iso}), tentativa {attempt + 1}: {exc}")
             else:
-                print(f"[erro] não foi possível baixar True Color ({date_iso}): {exc}")
+                print(f"[erro] nÃ£o foi possÃ­vel baixar True Color ({date_iso}): {exc}")
     return None
 
 
@@ -188,6 +199,14 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
     df_chl = pd.concat([df[["lat", "lon"]], chlor.rename("chlor_a")], axis=1)
     lat_chl, lon_chl, grid_chl = pivot_grid(df_chl, "chlor_a")
 
+    moana_total = compute_moana_total(df)
+    if moana_total is not None:
+        moana_series = moana_total.rename("moana_total_cells")
+        moana_df = pd.concat([df[["lat", "lon"]], moana_series], axis=1)
+        lat_moana, lon_moana, grid_moana = pivot_grid(moana_df, "moana_total_cells")
+    else:
+        lat_moana = lon_moana = grid_moana = None
+
     ssh = df.get("ssh_swot")
     swot_mask = df.get("swot_mask")
     if swot_mask is not None:
@@ -212,13 +231,13 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
         try:
             img = mpimg.imread(truecolor_path)
             ax_tc.imshow(img, origin="upper", extent=extent, transform=ccrs.PlateCarree())
-            ax_tc.set_title(f"MODIS True Color — {date_iso}")
+            ax_tc.set_title(f"MODIS True Color â€” {date_iso}")
         except Exception as exc:
             ax_tc.text(0.5, 0.5, f"Erro imagem\n{exc}", ha="center", va="center")
-            ax_tc.set_title("True Color indisponível")
+            ax_tc.set_title("True Color indisponÃ­vel")
     else:
-        ax_tc.text(0.5, 0.5, "True Color indisponível", ha="center", va="center")
-        ax_tc.set_title("True Color indisponível")
+        ax_tc.text(0.5, 0.5, "True Color indisponÃ­vel", ha="center", va="center")
+        ax_tc.set_title("True Color indisponÃ­vel")
 
     # SST
     ax_sst = axes[1]
@@ -227,7 +246,7 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
         mesh = ax_sst.pcolormesh(lon_sst, lat_sst, grid_sst, cmap="turbo", shading="auto",
                                  vmin=vmin_sst, vmax=vmax_sst, transform=ccrs.PlateCarree())
         cbar = plt.colorbar(mesh, ax=ax_sst, orientation="horizontal", pad=0.05)
-        cbar.set_label("SST (°C)")
+        cbar.set_label("SST (Â°C)")
     ax_sst.set_title("SST")
 
     # Gradiente de SST
@@ -237,7 +256,7 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
         mesh = ax_grad.pcolormesh(lon_grad, lat_grad, grid_grad, cmap="RdBu_r", shading="auto",
                                   vmin=-vmax_grad, vmax=vmax_grad, transform=ccrs.PlateCarree())
         cbar = plt.colorbar(mesh, ax=ax_grad, orientation="horizontal", pad=0.05)
-        cbar.set_label("Gradiente SST (°C/°)")
+        cbar.set_label("Gradiente SST (Â°C/Â°)")
     ax_grad.set_title("Gradiente SST")
 
     # Chlorofila
@@ -250,7 +269,7 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
         mesh = ax_chl.pcolormesh(lon_chl, lat_chl, grid_chl, cmap="viridis", shading="auto",
                                   norm=norm, transform=ccrs.PlateCarree())
         cbar = plt.colorbar(mesh, ax=ax_chl, orientation="horizontal", pad=0.05)
-        cbar.set_label("Chlor_a (mg m⁻³)")
+        cbar.set_label("Chlor_a (mg mâ»Â³)")
     ax_chl.set_title("Chlorofila")
 
     # SWOT
@@ -267,22 +286,41 @@ def plot_panels(df: pd.DataFrame, date_iso: str, truecolor_path: Optional[Path],
         cbar.set_label("SSH SWOT (m)")
     ax_swot.set_title("SWOT SSH")
 
-    # Painel de notas
-    ax_notes = axes[5]
-    ax_notes.grid(False)
-    ax_notes.set_axis_off()
-    ax_notes.text(
-        0.05,
-        0.95,
-        "Notas:\n"
-        "• SST/Gradiente: frentes térmicas concentram presas\n"
-        "• Chlorofila: proxy de produtividade planctônica\n"
-        "• SWOT: redemoinhos (warm/cold core)\n"
-        "• True Color: contexto visual da mesma data",
-        va="top",
-    )
+    # MOANA biomassa total
+    ax_moana = axes[5]
+    if grid_moana is not None:
+        norm_moana = None
+        finite_moana = grid_moana[np.isfinite(grid_moana) & (grid_moana > 0)]
+        if finite_moana.size:
+            norm_moana = mcolors.LogNorm(vmin=np.nanpercentile(finite_moana, 5),
+                                         vmax=np.nanpercentile(finite_moana, 95))
+        if HAVE_CARTOPY:
+            ax_moana.set_extent(extent, crs=ccrs.PlateCarree())
+            try:
+                ax_moana.add_feature(cfeature.LAND, facecolor="lightgray", zorder=0)
+                ax_moana.add_feature(cfeature.COASTLINE, linewidth=0.5)
+            except Exception:
+                pass
+            gl = ax_moana.gridlines(draw_labels=True, linewidth=0.4, alpha=0.5)
+            gl.top_labels = False
+            gl.right_labels = False
+            mesh = ax_moana.pcolormesh(lon_moana, lat_moana, grid_moana, cmap="magma", shading="auto",
+                                       norm=norm_moana, transform=ccrs.PlateCarree())
+        else:
+            mesh = ax_moana.pcolormesh(lon_moana, lat_moana, grid_moana, cmap="magma", shading="auto",
+                                       norm=norm_moana)
+            ax_moana.set_xlabel("Longitude")
+            ax_moana.set_ylabel("Latitude")
+        cbar = plt.colorbar(mesh, ax=ax_moana, orientation="horizontal", pad=0.05)
+        cbar.set_label("MOANA biomassa (cells ml^-1)")
+    else:
+        if HAVE_CARTOPY:
+            ax_moana.set_extent(extent, crs=ccrs.PlateCarree())
+        ax_moana.text(0.5, 0.5, "MOANA indisponivel", ha="center", va="center")
+    ax_moana.set_title("MOANA Biomassa Total")
 
     fig.subplots_adjust(left=0.04, right=0.96, top=0.93, bottom=0.07, wspace=0.15, hspace=0.18)
+    fig.text(0.5, 0.04, "Notas: SST/Gradiente -> frentes; Chlorofila -> produtividade; SWOT -> estruturas; MOANA -> biomassa fitoplanctonica.", ha="center")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=200)
     plt.close()
@@ -297,7 +335,7 @@ def main() -> None:
         pattern = args.pattern or "*_features.csv"
         features_list = sorted(features_dir.glob(pattern))
         if not features_list:
-            raise FileNotFoundError(f"Nenhum CSV encontrado em {features_dir} com padrão {pattern}")
+            raise FileNotFoundError(f"Nenhum CSV encontrado em {features_dir} com padrÃ£o {pattern}")
     else:
         features_list = [resolve_features_file(features_dir, args.features_file, args.date)]
 

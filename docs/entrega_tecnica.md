@@ -47,6 +47,139 @@ Nossa equipe construiu uma estrutura completa para prever hotspots de alimentaca
 | `habitat_class` | Faixa qualitativa (poor/moderate/good/excellent). | modelo heuristico |
 | `is_hotspot` | Top 10% com maior `habitat_score`. | modelo heuristico |
 
+# 🌊 Estrutura Matemática do `habitat_score`
+
+O índice de adequação por pixel e espécie é calculado como uma **combinação ponderada** das componentes ambientais:
+
+\[
+H(\text{pixel}, \text{espécie}) = \frac{\sum_i w_i \cdot S_i}{\sum_i w_i}
+\]
+
+Com pesos:
+
+\[
+\{w_i\} = \{0.23, 0.18, 0.15, 0.18, 0.10, 0.08, 0.05, 0.03\}
+\]
+
+---
+
+## 🧩 Componentes
+
+### 1. **Gradiente térmico** — `S_thermal_gradient`
+Função por partes baseada em `|∇T|` (em °C):
+
+| Faixa de |∇T| | Score |
+|:----------|:------:|
+| < 0.01 | 0.2 |
+| 0.01 – 0.02 | 0.6 |
+| 0.02 – 0.15 | **1.0** |
+| 0.15 – 0.30 | 0.6 |
+| > 0.30 | 0.2 |
+
+---
+
+### 2. **Temperatura** — `S_temperature`
+Definida em uma tabela (`SPECIES_PREFS`) por espécie:  
+Exemplo (tubarão-branco):
+
+| Faixa de T (°C) | Score |
+|:---------------|:------:|
+| 14 – 20 | **1.0** |
+| 10 – 14 ou 20 – 24 | 0.6 |
+| Fora dessas faixas | 0.2 |
+
+---
+
+### 3. **Clorofila** — `S_chlorophyll`
+Função por partes (mg/m³):
+
+| Faixa | Score |
+|:------|:------:|
+| < 0.05 | 0.2 |
+| 0.05 – 0.1 | 0.4 |
+| 0.1 – 2.0 | **1.0** |
+| 2 – 5 | 0.6 |
+| > 5 | 0.3 |
+
+---
+
+### 4. **Estrutura SWOT** — `S_swot_structure`
+Normalização dos quantis do gradiente de SSH:
+
+\[
+S = \mathrm{clip}\left(\frac{|\nabla SSH| - q_{30}}{q_{85} - q_{30}}, 0, 1\right)
+\]
+
+---
+
+### 5. **Polaridade SWOT** — `S_swot_polarity`
+
+\[
+\text{warm} = \mathrm{clip}\left(\frac{SSH - q_{25}}{q_{75} - q_{25}}, 0, 1\right)
+\]
+\[
+\text{cold} = \mathrm{clip}\left(\frac{q_{75} - SSH}{q_{75} - q_{25}}, 0, 1\right)
+\]
+
+A escolha (`warm`, `cold` ou `max`) depende da espécie.
+
+---
+
+### 6. **Produtividade MOANA** — `S_moana_prod`
+
+Normalização de \(\log_{10}(\text{moana_total_cells})\) entre os percentis 40 e 90 de cada dia.  
+Valores fora dessa faixa são truncados em `[0,1]`.
+
+---
+
+### 7. **Diversidade MOANA** — `S_moana_div`
+
+\[
+H' = -\sum_i p_i \log(p_i) / \log(n)
+\]
+
+Onde \(p_i\) são as frações de cada grupo fitoplanctônico (`moana_*`).  
+Resultado truncado em `[0,1]`.
+
+---
+
+### 8. **Composição MOANA** — `S_moana_comp`
+
+Função por partes sobre a razão de picoeucariotos (`moana_picoeuk_share`):
+
+- **0** se abaixo de `low` ou acima de `high`;
+- **1** na faixa ideal (`opt_low`, `opt_high`);
+- **Interpolação linear** nas transições.
+
+Exemplo: *Tiger shark* → faixa ideal `0.46–0.78`.
+
+---
+
+## 🧮 Resultado final
+
+- O resultado é truncado para `[0,1]`.  
+- Os **10% maiores valores** de `H` são classificados como **hotspots**.
+- Para médias (`AVG_*.csv`), aplica-se a **mesma fórmula** aos valores agregados.
+
+---
+
+## 🤖 Modelo supervisionado (XGBoost)
+
+O modelo supervisionado (`scripts/ml/04_train_model.py`) usa o mesmo vetor de *features*:
+
+\[
+[\text{sst}, \text{sst_gradient}, \text{chlor_a}, \text{moana_total_cells}, \dots]
+\]
+
+Ele produz probabilidades:
+
+\[
+P(\text{hotspot}|\mathbf{x})
+\]
+
+Atualmente, o rótulo de treinamento vem do índice heurístico acima.  
+No futuro, será **recalibrado com a telemetria da tag inteligente**, tornando o modelo autoajustável e mais preciso.
+
 ### Comunidades fitoplanctonicas MOANA e implicacoes para a predicao
 
 - `moana_prococcus_moana` (Prochlorococcus): cianobacteria adaptada a aguas quentes e pobres em nutrientes. Valores altos sinalizam regioes oligotroficas com cardapio basico; combinamos com gradiente e clorofila para diferenciar hotspots que dependem de eficiencia termica, tipicos de tubaroes azuis.

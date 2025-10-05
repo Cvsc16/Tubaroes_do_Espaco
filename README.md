@@ -57,13 +57,13 @@ Project developed for the **"Sharks from Space"** challenge of the NASA Space Ap
 ### Ecological Chain Concept
 
 ```
-Phytoplankton (PACE / MODIS)
-    ?
-Fish / Prey (currents, structure)
-    ?
-Fronts & Eddies (SWOT + SST gradient)
-    ?
-Sharks (model prediction)
+🌱 Phytoplankton (PACE / MODIS)
+   ↓
+🐟 Fishs (currents)
+   ↓
+🌀 Fronts/Swirls (SWOT + SST gradient)
+   ↓
+🦈 Sharks (Machine learning)
 ```
 
 ---
@@ -92,7 +92,7 @@ The tag combines a **hydrophone**, **DSP-capable microcontroller (ESP32)**, and 
 1. Continuous acoustic capture.
 2. Real-time FFT computation.
 3. Feature extraction from the spectrum.
-4. ML classification (�feeding� / �non-feeding�).
+4. ML classification (“feeding” / “non-feeding”).
 5. Transmission of event data.
 
 ### Feasibility & Challenges
@@ -114,8 +114,8 @@ Tubaroes_do_Espaco/
 +-- docs/                    # Reports and documentation
 +-- scripts/                 # Python modeling pipeline
 +-- tag/                     # Smart-tag design, firmware, FFT studies
-�   +-- FFT/
-�   +-- Informations/
+¦   +-- FFT/
+¦   +-- Informations/
 +-- requirements.txt
 +-- README.md
 ```

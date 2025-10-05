@@ -1,33 +1,33 @@
-# Desafio "Tubaroes do Espaco"
+# "Sharks from Space" Challenge Overview
 
-## Resumo
-O oceano e um dos habitats mais poderosos do planeta, sustentando ecossistemas essenciais. O desafio pede para criar uma estrutura matematica capaz de identificar tubaroes e prever seus habitats de alimentacao usando dados de satelite da NASA, alem de sugerir uma tag inteligente que indique nao so onde os tubaroes estao, mas tambem o que estao comendo, transmitindo dados em tempo real.
+## Summary
+The ocean is one of the planet's most powerful habitats, sustaining essential ecosystems. The challenge asks teams to build a mathematical framework that identifies sharks and predicts their feeding habitats using NASA satellite data, and to design an intelligent tag that reports not only where sharks are, but also what they are eating, transmitting the data in near real time.
 
-## Contexto
-- Tubaroes sao predadores de topo que regulam cadeias troficas e garantem diversidade.
-- A pressao de pesca aumenta a urgencia de entender onde eles se alimentam e se movem.
-- Dados SWOT e PACE permitem rastrear redemoinhos oce anicos e composicao do fitoplancton, fundamentais para localizar hotspots de forrageamento.
+## Context
+- Sharks are apex predators that regulate food webs and preserve diversity.
+- Fishing pressure increases the urgency to understand where they feed and how they move.
+- SWOT and PACE data let us track oceanic eddies and phytoplankton composition, both crucial to locating foraging hotspots.
 
-## Objetivos Principais
-1. Criar um modelo (matematico ou de machine learning) que relacione variaveis oceanograficas com o comportamento de alimentacao dos tubaroes.
-2. Propor um conceito de tag eletronica capaz de medir localizacao, comportamento alimentar e transmitir dados quase em tempo real.
+## Primary Objectives
+1. Develop a model (mathematical or machine learning) that links oceanographic variables with shark foraging behavior.
+2. Propose an electronic tag concept capable of measuring position, feeding activity, and transmitting data almost in real time.
 
-## Perguntas Orientadoras
-- Quais caracteristicas fisicas do oceano (temperatura, correntes, redemoinhos) influenciam a alimentacao dos tubaroes?
-- Como a produtividade biologica (fitoplancton) se conecta aos padroes de movimento dos predadores?
-- Quando os tubaroes optam por superficiar ou mergulhar mais fundo?
-- Quais impactos ecologicos podem ser previstos a partir da localizacao destes animais?
+## Guiding Questions
+- Which physical characteristics of the ocean (temperature, currents, eddies) influence shark feeding?
+- How does biological productivity (phytoplankton) connect to predator movement patterns?
+- When do sharks choose to stay near the surface or dive deeper?
+- What ecological impacts can be inferred from shark locations?
 
-## Possiveis Entregas
-- Modelo simples que usa dados de satelite como entrada e gera mapas de hotspots.
-- Visualizacoes (imagens, mapas interativos, videos curtos) que expliquem a relacao entre tubaroes e variaveis ambientais.
-- Proposta de nova medicao por satelite ou combinacao de dados que ajude a identificar habitats criticos.
+## Possible Deliverables
+- A simple model that ingests satellite data and generates hotspot maps.
+- Visualizations (images, interactive maps, short videos) that explain relationships between sharks and environmental variables.
+- A proposal for a new satellite observation or data fusion that helps identify critical habitats.
 
-## Publico-Alvo
-- Estudantes do ensino medio.
-- Comunidade em geral interessada em conservacao marinha.
+## Target Audience
+- High-school students.
+- The general public interested in marine conservation.
 
-## Recomendacoes de Comunicacao
-- Explicar por que tubaroes sao importantes para o equilibrio do oceano.
-- Mostrar como previsoes melhores podem apoiar gestao pesqueira, turismo e conservacao.
-- Usar linguagem acessivel, complementando com visualizacoes interativas ou materiais educativos.
+## Communication Recommendations
+- Explain why sharks matter for ocean balance.
+- Show how better predictions can support fisheries management, tourism, and conservation.
+- Use accessible language, complemented by interactive visualizations or educational materials.

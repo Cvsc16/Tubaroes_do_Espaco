@@ -1,19 +1,18 @@
+# Smart Tag Concept - Diet & Hunting in Near Real Time
 
-# Conceito de Tag – Dieta & Caça em Tempo (quase) Real
+**Sensors**
+- IMU (accelerometer/gyroscope) ? detects bursts/attacks.
+- Pressure + temperature ? depth / thermocline context.
+- Narrow-band hydrophone ? chewing and prey sounds.
+- Gastric proxy (bioimpedance or lightweight internal thermistor) ? ingestion events.
 
-**Sensores:**
-- IMU (acel/giroscópio) → detecção de rajadas/ataque
-- Pressão + temperatura → profundidade/termoclina
-- Hidrofone de banda limitada → sons de mastigação
-- Proxy gástrico (bioimpedância/termistor interno leve) → ingestão
+**Edge AI / Duty Cycle**
+- Lightweight classifier flags potential feeding events (IMU trigger), activates the hydrophone for short windows, and logs the gastric proxy.
+- Only **events** are transmitted, saving energy.
 
-**Edge AI/Duty Cycle:**
-- Classificador leve detecta possível evento de alimentação (pela IMU) → ativa hidrofone por janelas curtas e registra proxy gástrico.
-- Apenas **eventos** são transmitidos (economia de energia).
+**Telemetry & Power**
+- Local buffer; uplink via Argos/Iridium when the shark surfaces.
+- Aggressive duty cycling; consider micro solar panels and firmware optimizations.
 
-**Transmissão e Energia:**
-- Buffer local; uplink via Argos/Iridium quando em superfície.
-- Energia: duty-cycling agressivo; considerar micro painéis solares e otimização de firmware.
-
-**Dados enviados (compactos):**
-- timestamp, lat/lon, profundidade, prob_evento_alimentação, resumo de features.
+**Payload (compact)**
+- Timestamp, latitude/longitude, depth, feeding-event probability, summary of extracted features.

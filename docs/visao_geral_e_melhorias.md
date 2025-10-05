@@ -1,147 +1,116 @@
-﻿# Tubaroes do Espaco - Visao Geral e Melhorias
+# Sharks from Space - Overview and Improvements
 
-Este documento resume, de forma pratica, o que o projeto faz hoje, como a pipeline esta organizada e quais melhorias priorizadas podem elevar a robustez, utilidade cientifica e a experiencia de uso.
-
----
-
-## Atualizacoes recentes (2025-09-30)
-
-- Otimizei scripts/02_preprocess.py:1 (chunks/dask + float32 + compressão) para evitar estouro de RAM.
-- Integrei MODIS CHL (download, pre-processamento, features e export); o modelo agora usa `chlor_a` além de SST.
-
-- Atualizei config/config.yaml:1 para 2025-09-20→2025-09-25, rerodei scripts 01-05 e gerei novos CSVs/GeoTIFFs + tiles_manifest.json.
-- Corrigi imports nos scripts/pipeline/visualizacao (fallback sys.path) e adicionei --date nas comparacoes, eliminando ModuleNotFoundError.
-- Padronizei scripts para usar `scripts.utils` (load_config/project_root) e evitar caminhos relativos duplicados.
-- Reescrevi `scripts/02_preprocess.py:1` preservando a dimensao `time`, gradiente com `xr.apply_ufunc` e metadados de bbox.
-- Atualizei `requirements.txt:1` em ASCII e inclui `requests`, `pillow`, `cartopy` e `joblib`.
-- Criei `scripts/utils/build_tiles_manifest.py:1` para gerar `data/tiles/tiles_manifest.json` e alimentar o app.
-- Ajustei `app/index.html:1` para carregar tiles dinamicamente e lidar com ausencia de GeoTIFFs.
-- Convertei os briefs para Markdown (`docs/desafio_projeto.md:1`, `docs/recursos_projeto.md:1`).
-- Criei `guia_equipa_tubaroes.md:1` como explicacao nao tecnica para a equipe.
+This document summarizes what the project delivers today, how the pipeline is organized, and which prioritized upgrades will increase robustness, scientific value, and user experience.
 
 ---
 
-## Atualizacoes recentes (2025-09-29)
-
-- Criei `scripts/utils_config.py:1` para centralizar o carregamento de `config/config.yaml`.
-- Refatorei `scripts/compare_side_by_side_slider.py:1` para usar a bbox do config, embutir imagens MODIS em base64 e aceitar diferentes nomes de coordenadas.
-- Ajustei `scripts/02_preprocess.py:1` para padronizar lat/lon, preservar a dimensao temporal e calcular gradiente por timestep.
-- Atualizei `scripts/03_feature_engineering.py:1` para gerar DataFrames com colunas `lat`, `lon` e `date` a partir do eixo `time` quando presente.
-- Revisei `scripts/04_train_model.py:1` para consolidar as features, rotular hotspots via top-percent de gradiente e treinar o modelo.
-- Reescrevi `scripts/05_export_tiles.py:1` para aplicar o modelo diretamente aos NetCDF processados e gerar GeoTIFFs em `data/tiles/`.
-
----
-
-## Visao Geral
-
-- Objetivo: prever e visualizar hotspots de alimentacao de tubaroes a partir de dados de satelite da NASA, unindo processamento cientifico, feature engineering, ML e visualizacao interativa.
-- Entradas: colecoes NASA (ex.: MUR SST, MODIS CHL, PACE, ECCO, SWOT), baixadas via Earthdata.
-- Saidas: arquivos processados (NetCDF), tabelas de features (CSV), graficos de pre-visualizacao (PNG/HTML) e raster/tiles de probabilidade (GeoTIFF).
-- Publico-alvo: cientistas, gestores ambientais, educadores e publico geral interessado em conservacao marinha.
+## Recent Updates (2025-09-30)
+- Optimized `scripts/02_preprocess.py` (Dask chunks + float32 + compression) to avoid RAM spikes.
+- Integrated MODIS chlorophyll across download, preprocessing, feature engineering, and export; the model now uses `chlor_a` in addition to SST.
+- Updated `config/config.yaml` to 2025-09-20-2025-09-25, reran scripts 01-05, and produced fresh CSVs/GeoTIFFs plus `tiles_manifest.json`.
+- Fixed imports in pipeline/visualization scripts (sys.path fallback) and added `--date` arguments to comparisons, removing ModuleNotFoundError.
+- Standardized scripts to rely on `scripts.utils` (load_config/project_root) and avoid duplicated relative paths.
+- Rewrote `scripts/02_preprocess.py` keeping the `time` dimension, using `xr.apply_ufunc` for gradients, and preserving BBOX metadata.
+- Refreshed `requirements.txt` (ASCII), adding `requests`, `pillow`, `cartopy`, and `joblib`.
+- Created `scripts/utils/build_tiles_manifest.py` to generate `data/tiles/tiles_manifest.json` for the web app.
+- Updated `app/index.html` to load tiles dynamically and handle missing GeoTIFFs gracefully.
+- Converted the briefs to Markdown (`docs/desafio_projeto.md`, `docs/recursos_projeto.md`).
+- Added `docs/guia_solucao.md` as a non-technical guide for the team.
 
 ---
 
-## Como Funciona (Pipeline)
-
-1) Busca e download
-- `scripts/01_search_download.py:1` faz login no Earthdata (netrc) e busca/baixa granules conforme `config/config.yaml:1` (bbox e periodo). Hoje habilitado principalmente para SST MUR.
-
-2) Pre-processamento cientifico
-- `scripts/02_preprocess.py:1` recorta por `bbox`, converte SST para graus Celsius quando necessario e calcula gradiente espacial (proxy de frentes oceanicas). Preserva a dimensao `time` quando existente e salva em `data/processed/` (NetCDF) com variaveis `sst` e `sst_gradient`.
-
-3) Feature engineering tabular
-- `scripts/03_feature_engineering.py:1` converte os NetCDF processados em tabelas (lat, lon, date, sst, sst_gradient) e salva em `data/features/`.
-
-4) Treinamento de modelo (baseline)
-- `scripts/04_train_model.py:1` agrega as features, rotula hotspots como o top-N por cento de gradiente por dia, salva `data/processed/dataset.csv` e treina XGBoost (fallback para GradientBoosting).
-
-5) Exportacao de produtos para mapas
-- `scripts/05_export_tiles.py:1` carrega o modelo treinado, aplica aos NetCDF processados (por data/time) e gera GeoTIFFs de probabilidade em `data/tiles/`.
-
-6) Visualizacao e inspecoes
-- Estatico: `scripts/check_processed.py:1` gera PNGs (`data/sst_preview.png`, `data/sst_gradient_preview.png`).
-- Interativo: `scripts/check_processed_interactive.py:1` e `scripts/extras/plot_features_interactive.py:1` geram HTMLs.
-- Comparacoes MODIS vs cientifico: `scripts/compare_modis_truecolor.py:1`, `scripts/compare_side_by_side_slider.py:1` e backups em `scripts/backups/`.
-- Web app (esqueleto): `app/index.html:1` com Leaflet para sobrepor tiles (quando disponiveis).
+## Recent Updates (2025-09-29)
+- Created `scripts/utils_config.py` to centralize access to `config/config.yaml`.
+- Refactored `scripts/compare_side_by_side_slider.py` to use the config BBOX, embed MODIS in base64, and accept different coordinate names.
+- Adjusted `scripts/02_preprocess.py` to standardize lat/lon, preserve the time dimension, and compute gradients per timestep.
+- Updated `scripts/03_feature_engineering.py` to build DataFrames with `lat`, `lon`, and `date` from the `time` axis when available.
+- Revised `scripts/04_train_model.py` to consolidate features, label hotspots via top-percent gradient, and train the baseline model.
+- Rewrote `scripts/05_export_tiles.py` to apply the model directly to processed NetCDFs and generate GeoTIFFs in `data/tiles/`.
 
 ---
 
-## Estrutura de Pastas (resumo)
-
-- `config/config.yaml:1` - parametros de bbox, datas e colecoes.
-- `data/raw/` - NetCDF brutos baixados.
-- `data/processed/` - NetCDF recortados + gradiente, dataset consolidado, modelo e metricas.
-- `data/features/` - CSVs tabulares para ML.
-- `data/tiles/` - GeoTIFFs de probabilidade gerados pelo modelo.
-- `data/viz/` e `data/compare/` - saidas HTML/PNG interativas e comparativas.
-- `app/index.html:1` - base para o mapa web (Leaflet).
-- `requirements.txt:1` - dependencias Python.
+## Overview
+- Goal: predict and visualize shark feeding hotspots from NASA satellite data by combining scientific processing, feature engineering, ML, and interactive visualization.
+- Inputs: NASA collections (e.g., MUR SST, MODIS CHL, PACE, ECCO, SWOT) downloaded via Earthdata.
+- Outputs: processed NetCDF files, tabular feature CSVs, preview graphics (PNG/HTML), and probability rasters/tiles (GeoTIFF).
+- Audience: scientists, environmental managers, educators, and the public interested in marine conservation.
 
 ---
 
-## O que ja funciona
-
-- Download automatizado de MUR SST conforme bbox/tempo.
-- Recorte e calculo de gradiente com previews (PNG/HTML) preservando a dimensao temporal.
-- Geracao de features tabulares (SST + gradiente) por arquivo/dia com coluna de data vinda do NetCDF.
-- Consolida o dataset para treino com rotulo heuristico baseado em gradiente e treina o modelo base (AUC/AP salvos).
-- Comparacoes MODIS vs cientifico com slider `scripts/compare_side_by_side_slider.py:1` usando configuracao centralizada e imagens embutidas offline.
-- Exporta GeoTIFFs de probabilidade diretamente dos NetCDF processados em `data/tiles/`.
-
----
-
-## Lacunas e pontos de atencao (observados no codigo)
-
-- Rotulo heuristico simplificado
-  - `scripts/04_train_model.py:1` usa top-N por cento do gradiente como proxy de hotspot. Ideal substituir por dados reais de presenca ou outra logica fisica.
-
-- Features limitadas
-  - O modelo usa apenas `sst` e `sst_gradient`. Faltam variaveis biologicas/dinamicas (CHL, correntes, SWOT) ja previstas na configuracao.
-
-- Gradiente em graus (nao em metros)
-  - `scripts/02_preprocess.py:1` calcula `np.gradient` no grid geografico. Para comparar intensidade fisica de frentes, considerar correcao pela escala graus-km ou reamostrar para projecao metrica antes do gradiente.
-
-- Fail-safe de rede para MODIS
-  - Scripts que baixam WMS (MODIS True Color) usam cache, mas ainda nao tem retry exponencial nem tempo de espera configuravel.
-
-- Normalizacao de coordenadas legado
-  - Outros scripts (ex.: `scripts/backups/compare_scientific_vs_truecolor_slider.py:1`) ainda assumem `lon/lat` e nao usam `utils_config.py:1`.
+## Pipeline Walkthrough
+1. **Search & Download** - `scripts/01_search_download.py` logs into Earthdata and downloads granules according to `config/config.yaml` (BBOX + time window); currently focused on MUR SST.
+2. **Scientific Preprocessing** - `scripts/02_preprocess.py` crops to the BBOX, converts SST to Celsius, and computes spatial gradients as a proxy for fronts. It preserves the `time` dimension when present and saves NetCDFs with `sst` and `sst_gradient` under `data/processed/`.
+3. **Tabular Feature Engineering** - `scripts/03_feature_engineering.py` turns processed NetCDFs into tables (lat, lon, date, sst, sst_gradient, chlorophyll, MOANA metrics) stored in `data/features/`.
+4. **Baseline Model Training** - `scripts/04_train_model.py` aggregates features, labels hotspots as the top-N percent of gradient per day, outputs `data/processed/dataset.csv`, and trains XGBoost (fallback to GradientBoosting).
+5. **Map Products** - `scripts/05_export_tiles.py` loads the trained model, applies it to processed NetCDF slices, and exports probability GeoTIFFs to `data/tiles/`.
+6. **Visualization & QA**
+   - Static: `scripts/check_processed.py` generates PNG previews (SST and gradient).
+   - Interactive: `scripts/check_processed_interactive.py` and `scripts/extras/plot_features_interactive.py` produce HTML dashboards.
+   - Comparisons: `scripts/compare_modis_truecolor.py`, `scripts/compare_side_by_side_slider.py`, and backups in `scripts/backups/`.
+   - Web app skeleton: `app/index.html` (Leaflet) overlays tiles when available.
 
 ---
 
-## Melhorias recomendadas (priorizadas)
-
-Curto prazo (alto impacto, baixo/medio esforco)
-- Refinar o rotulo de treino com dados reais de presenca/ausencia ou outra heuristica fisica (ex.: combinar gradiente + SST + CHL).
-- Atualizar scripts de comparacao remanescentes para ler configuracao via `utils_config.py:1`, tratar nomes de coordenadas e aplicar base64 real.
-- Adicionar retry/backoff configuravel nos downloads MODIS e opcao de reutilizar cache sem erro.
-
-Medio prazo
-- Integrar variaveis adicionais: incorporar CHL (MODIS/PACE), correntes (ECCO) e metricas de mesoescala (SWOT) na cadeia `02_preprocess.py:1` -> `03_feature_engineering.py:1` -> `04_train_model.py:1`.
-- Ajustar gradiente para escala metrica: reprojetar temporariamente para CRS metrica ou corrigir pela latitude ao calcular gradiente.
-- Parametrizar scripts via CLI: permitir `--start`, `--end`, `--bbox`, `--maxn` para facilitar reuso.
-- Gerar produtos para o app web (tiles vectorizados, legendas) e integrar no `app/index.html:1`.
-
-Longo prazo
-- Modelagem avancada e incerteza: calibrar/validar com trilhas reais de tubaroes, adicionar incerteza e avaliacao espacial/temporal.
-- Processamento distribuido: Dask para chunking de arrays e paralelizacao em multiplos dias/variaveis.
-- Testes automatizados: pequenos arquivos de exemplo em `tests/data/` e suites de regressao (ex.: conferir dimensoes, ranges, existencia de saidas esperadas).
-- Empacotamento e reprodutibilidade: `pyproject.toml`, travamento de versoes e/ou container leve (ex.: conda-lock, uv, micromamba ou Docker slim).
-- Web app completo: servidor de tiles (ou uso de bibliotecas como `georaster-layer-for-leaflet`), seletores de data/variavel e camadas tematicas.
+## Folder Layout (summary)
+- `config/config.yaml` - BBOX, dates, and dataset IDs.
+- `data/raw/` - downloaded NetCDFs.
+- `data/processed/` - cropped NetCDFs + gradients, consolidated dataset, model, metrics.
+- `data/features/` - tabular features for ML.
+- `data/tiles/` - probability GeoTIFFs generated by the model.
+- `data/viz/` & `data/compare/` - interactive and comparative outputs (PNG/HTML).
+- `app/index.html` - base for the Leaflet web map.
+- `requirements.txt` - Python dependencies.
 
 ---
 
-## Dicas de uso e execucao
-
-- Ambiente: ver `README.md:1` para criacao do venv e instalacao.
-- Ordem tipica: `01_search_download.py` -> `02_preprocess.py` -> `03_feature_engineering.py` -> inspeccoes/plots -> `04_train_model.py` -> `05_export_tiles.py`.
-- Saidas prontas no repositorio: ha exemplos em `data/compare/`, `data/viz/` e `data/tiles/` que ajudam a validar a experiencia interativa sem rodar toda a pipeline.
+## What Already Works
+- Automated download of MUR SST based on BBOX/time range.
+- Cropping and gradient computation with previews (PNG/HTML) while keeping the time dimension.
+- Generation of tabular features (SST + gradient + chlorophyll + MOANA) with dates derived from NetCDF metadata.
+- Dataset consolidation for training with gradient-based heuristic labels; baseline model produces AUC/AP metrics.
+- MODIS vs. scientific comparisons with slider (`scripts/compare_side_by_side_slider.py`) using centralized config and embedded images.
+- Direct export of probability GeoTIFFs from processed NetCDFs in `data/tiles/`.
 
 ---
 
-## Observacoes finais
+## Gaps and Watchpoints
+- **Heuristic label** - `scripts/04_train_model.py` relies on top-N percent gradient as hotspot proxy. We should replace it with actual presence/absence data or a more physics-aware heuristic.
+- **Feature coverage** - the initial model used only `sst` and `sst_gradient`; now we also export chlorophyll and MOANA metrics, but ECCO currents and other dynamics remain to be integrated.
+- **Gradient units** - `scripts/02_preprocess.py` computes `np.gradient` on a geographic grid. For physical comparability across latitudes, we should convert to metric scale or reproject before gradient calculations.
+- **Network fail-safe** - WMS downloads (MODIS True Color) rely on cache but still lack exponential backoff and configurable timeouts.
+- **Legacy coordinate handling** - some scripts (e.g., backups) still hardcode `lat/lon` and do not reuse `utils_config.py`.
 
-- O projeto esta bem encaminhado na ingestao/pre-processamento, consolidacao de dataset e visualizacoes iniciais. As maiores lacunas agora estao na qualidade do rotulo, na incorporacao de variaveis adicionais e na robustez operacional.
-- A priorizacao sugerida foca em robustez (config centralizada, rotulos melhores, coordenacao de variaveis) e em aproximar o produto final (GeoTIFF/tiles + app Leaflet) de um fluxo pronto para uso publico.
+---
 
+## Recommended Improvements
 
+**Short term (high impact, low/medium effort)**
+- Refine labels with real presence/absence data or a multi-factor heuristic (gradient + SST + CHL).
+- Update remaining comparison scripts to read config via `utils_config.py`, handle coordinate aliases, and embed imagery properly.
+- Add retry/backoff options to MODIS downloads and allow cached fallback without failure.
+
+**Medium term**
+- Integrate additional variables: incorporate CHL (MODIS/PACE), currents (ECCO), and mesoscale metrics (SWOT) across `02_preprocess.py` ? `03_feature_engineering.py` ? `04_train_model.py`.
+- Adjust gradient calculations to metric scale (temporary reprojection or latitude-aware correction).
+- Parameterize scripts via CLI to set `--start`, `--end`, `--bbox`, `--maxn` for easier reuse.
+- Produce assets tailor-made for the web app (vector tiles, legends) and integrate within `app/index.html`.
+
+**Long term**
+- Advanced modeling & uncertainty: calibrate/validate with real shark tracks, add uncertainty estimates, and evaluate spatial/temporal performance.
+- Distributed processing: leverage Dask for chunked arrays and parallelism across multiple days/variables.
+- Automated tests: curate small fixtures in `tests/data/` and write regression checks (dimensions, ranges, expected outputs).
+- Packaging & reproducibility: adopt `pyproject.toml`, version locking, or lightweight containers (conda-lock, uv, micromamba, Docker slim).
+- Full web product: tile server (or libraries such as `georaster-layer-for-leaflet`), date/variable selectors, and thematic overlays.
+
+---
+
+## Usage Tips
+- Environment setup: see the main `README.md` for creating the virtual environment and installing dependencies.
+- Typical order: `01_search_download.py` ? `02_preprocess.py` ? `03_feature_engineering.py` ? inspections/plots ? `04_train_model.py` ? `05_export_tiles.py`.
+- Ready-made outputs: examples in `data/compare/`, `data/viz/`, and `data/tiles/` allow validation without running the full pipeline.
+
+---
+
+## Final Notes
+- The project is in a solid state for ingestion/preprocessing, dataset consolidation, and initial visualizations. The biggest gaps now are label quality, integration of additional variables, and operational robustness.
+- The proposed priorities focus on robustness (centralized config, better labels, coordinated variables) and on moving the final product (GeoTIFFs/tiles + Leaflet app) closer to a public-ready workflow.

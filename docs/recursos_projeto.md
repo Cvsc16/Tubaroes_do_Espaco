@@ -1,26 +1,26 @@
-# Recursos do Projeto
+# Project Resources
 
-## Dados NASA Prioritarios
-- **PACE (Plankton, Aerosols, Clouds and Ecosystems)**: abundancia e composicao de fitoplancton com cobertura global de alta resolucao.
-- **MODIS Aqua (L3)**: serie historica de clorofila-a para comparar tendencias de produtividade.
-- **SWOT (Surface Water and Ocean Topography)**: rastreamento de redemoinhos e variacoes de nivel da superficie do mar em alta resolucao.
-- **MUR SST (GHRSST)**: temperatura da superficie do mar quase em tempo real, util para detectar frentes termicas.
-- **ECCO (Estimating the Circulation and Climate of the Ocean)**: campos diarios de velocidade (u/v) para entender transporte de nutrientes.
+## Priority NASA Datasets
+- **PACE (Plankton, Aerosols, Clouds and Ecosystems)** - global, high-resolution coverage of phytoplankton abundance and community composition.
+- **MODIS Aqua (L3)** - long-term chlorophyll-a time series to monitor productivity trends.
+- **SWOT (Surface Water and Ocean Topography)** - high-resolution tracking of eddies and sea-surface height anomalies.
+- **MUR SST (GHRSST)** - near-real time sea-surface temperature for detecting thermal fronts.
+- **ECCO (Estimating the Circulation and Climate of the Ocean)** - daily u/v velocity fields to understand nutrient transport.
 
-## Literatura Cientifica de Apoio
-- **Braun et al. (2019)** ? Mostra que redemoinhos quentes permitem que tubaroes pelagicos explorem a zona crepuscular sem restricao termica.
-- **Gaube et al. (2018)** ? Analisa movimentos de tubaroes-brancos na Corrente do Golfo e Mar dos Sargacos, relacionando-os a estruturas de mesoescala.
+## Supporting Scientific Literature
+- **Braun et al. (2019)** - hot eddies allow pelagic sharks to forage in the twilight zone without thermal stress.
+- **Gaube et al. (2018)** - links adult white shark movements in the Gulf Stream/Sargasso Sea to mesoscale structures.
 
-## Recursos de Parceiros e Tutoriais
-- **Agencia Espacial Canadense (CSA)**:
-  - *smartWhales: Usando o espaco para manter as baleias seguras* ? Exemplo de uso de dados de satelite para protecao da megafauna.
-  - *Monitoramento e protecao do nosso ecossistema do espaco* ? Visao geral sobre monitoramento ambiental via satelite.
-- **Portal SWOT** ? Dados, documentacao e tutoriais sobre a missao Surface Water and Ocean Topography.
-- **Informacoes institucionais SWOT** ? Descricao da missao conjunta NASA, CNES, CSA e UKSA, cobrindo 90% das aguas superficiais do planeta.
+## Partner Resources and Tutorials
+- **Canadian Space Agency (CSA):**
+  - *smartWhales: Using space to keep whales safe* - example of satellite data applied to megafauna protection.
+  - *Monitoring and protecting our ecosystem from space* - overview of environmental monitoring via satellites.
+- **SWOT Portal** - data access, documentation, and tutorials for the Surface Water and Ocean Topography mission.
+- **SWOT mission materials** - institutional information from NASA, CNES, CSA, and UKSA describing mission scope (90% of Earth’s surface waters).
 
-## Como Usar Estes Recursos
-1. **Dados** ? Alimentam os scripts de download (`01_search_download.py`) e pre-processamento (`02_preprocess.py`).
-2. **Artigos** ? Fornecem base cientifica para justificar variaveis e narrativa do projeto.
-3. **Recursos institucionais** ? Apoiam storytelling sobre colaboracao internacional e aplicacoes praticas.
+## How We Use These Resources
+1. **Datasets** - feed our download (`01_search_download.py`) and preprocessing (`02_preprocess.py`) scripts.
+2. **Articles** - provide scientific grounding for selected variables and storytelling.
+3. **Institutional resources** - support communication about international collaboration and practical applications.
 
-Guarde os links completos e credenciais (quando necessario) em arquivos seguros ou notas internas da equipe.
+Store full links and required credentials in secure team notes or internal files.

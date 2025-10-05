@@ -1,0 +1,17 @@
+heterodyne the signal as explained by Sonotronics technical support:
+“The “first” NE602 heterodynes the incoming signal with a variable frequency “LO” (local
+oscillator) to produce a 455kHz IF (when looking for a 75kHz input, LO is set to 380kHz to
+produce a ‘sideband’ of 455kHz). The resultant signal is passed through the 455kHz filter,
+and this output is heterodyned at the ‘second’ NE602 with a fixed 456kHz (aka beat
+frequency oscillator) to produce a 1khz sideband... in this version of the receiver, the 1kHz
+signal is used to indicate the presence of the desired initial signal (75kHz) and to produce an
+audible note as well [8].”
+Because oscillator schematics were not available, the oscillator circuits needed to be
+designed. Many different resistor/capacitor/op amp configurations were experimented with
+to construct a suitable oscillator but none could produce a clean signal higher than 240 kHz.
+4.2 Second Approach: Custom Design Circuit
+The Sonotronics filter was designed to produce an audible tone for the operator to listen
+for. However, the project did not require the signal to be converted to a certain frequency
+but rather to accurately detect the pulse received from each hydrophone. With this in mind,
+a new filter was designed in LabVIEW that used an adjustable 73 kHz band-pass filter rather
+than using the 455 kHz mechanical filter. A preamplifier circuit was chosen to boost the gain

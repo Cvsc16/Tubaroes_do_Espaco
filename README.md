@@ -1,68 +1,70 @@
 # 🦈 Tubarões do Espaço | NASA Space Apps Challenge 2025
 
-Projeto desenvolvido para o desafio **Tubarões do Espaço** do NASA Space Apps Challenge 2025.  
-
-Nosso objetivo é **prever habitats de alimentação de tubarões** utilizando dados de satélite da NASA (SST, PACE, SWOT, ECCO).  
-O projeto une **modelagem matemática, machine learning e visualização interativa**, além da proposta de um **conceito de tag eletrônica** para tubarões.
+Projeto desenvolvido para o desafio **Tubarões do Espaço** do NASA Space Apps Challenge 2025. Nosso objetivo é **prever habitats de alimentação de tubarões** combinando dados de satélite (SST, PACE, SWOT), modelagem matemática, *machine learning* e visualização interativa — junto de um conceito de **tag eletrônica inteligente** que reforça o modelo com dados coletados “no tubarão”.
 
 ---
 
-## 🚀 Resumo Executivo
-
-Este projeto usa **dados de satélite da NASA** para entender a relação entre **condições oceânicas e habitats de tubarões**, principais predadores marinhos.  
-Combinamos **ciência oceânica, inteligência artificial e novas tecnologias** para:  
-- Prever **onde tubarões estarão se alimentando**.  
-- Propor **tags inteligentes** que medem não só *onde* estão, mas também *o que comem*.  
-- Fornecer **mapas interativos** para cientistas, gestores ambientais e sociedade.
+## 🚀 Resumo executivo
+- **Dados NASA → frentes oceânicas → hotspots de alimentação.**  
+- Pipeline automatizada gera **mapas diários de probabilidade** + **dashboards interativos**.  
+- **Tag eletrônica** proposta adiciona contexto comportamental e valida o modelo em campo.
 
 ---
 
-## 🌍 Impacto Esperado
-
-- 🌱 **Conservação marinha**: proteção de habitats críticos.  
-- 🎣 **Pesca sustentável**: reduzir conflitos entre pesca e biodiversidade.  
-- 🧑‍🎓 **Educação científica**: engajar estudantes e comunidade em ciência oceânica.  
-- 🛰️ **Valorização dos dados da NASA**: aproximar ciência espacial de problemas ambientais.  
+## 🌍 Impacto esperado
+- 🌱 **Conservação marinha** – priorizar áreas críticas e rotas migratórias.  
+- 🎣 **Pesca sustentável** – reduzir captura acidental e conflitos pesca × biodiversidade.  
+- 🧑‍🎓 **Educação científica** – contar a história de forma acessível para o público geral.  
+- 🛰️ **Valorizar dados NASA** – ciência espacial aplicada a desafios costeiros do dia a dia.
 
 ---
 
-## 🗂️ Estrutura principal
+## 🧭 Glossário rápido
+- **SST (Temperatura da Superfície do Mar):** “quente/frio” da pele do oceano; tubarões usam **frentes térmicas** (mudanças bruscas) como pistas de caça.  
+- **Frente oceânica:** linha de encontro entre águas de temperaturas diferentes que **concentra alimento**.  
+- **Redemoinho (*eddy*):** “carrossel” de água que **aprisiona nutrientes e presas**; detectável por topografia do mar.  
+- **Clorofila‑a:** pigmento das micro‑algas (**fitoplâncton**); indica **produtividade** (comida para toda a cadeia).  
+- **PACE / OCI:** satélite + sensor que enxergam **cores do oceano** para estimar **tipos de fitoplâncton** (*PFTs*).  
+- **PFTs (Tipos Funcionais de Fitoplâncton):** grupos como **Prochlorococcus, Synechococcus, picoeucariotos**; ajudam a inferir a **qualidade do cardápio** para peixes e, indiretamente, tubarões.  
+- **SWOT (SSH):** mede **altura da superfície do mar** em alta resolução ⇒ revela **frentes e redemoinhos**.  
+- **Hotspot de alimentação:** pixel com **alta probabilidade** de presença/forrageamento.
+
+---
+
+## 🗂️ Estrutura do repositório
 ```
 Tubaroes_do_Espaco/
 │
 ├── config/
-│   └── config.yaml                # BBox, janela temporal, datasets
+│   └── config.yaml               # BBox, janela temporal, nomes de datasets
 │
 ├── data/
-│   ├── raw/                      # NetCDF brutos (MUR SST etc.)
+│   ├── raw/                      # NetCDF brutos (MUR, MODIS, PACE, SWOT, ECCO)
 │   ├── processed/                # NetCDF recortados, dataset.csv, modelo, métricas
 │   ├── features/                 # CSVs tabulares para ML
 │   ├── tiles/                    # GeoTIFFs hotspots_probability_*.tif + tiles_manifest.json
-│   └── compare/                  # PNG/HTML para storytelling
+│   └── compare/                  # PNG/HTML usados no storytelling
 │
 ├── scripts/
-│   ├── 01_search_download.py     # Download via earthaccess (usa config)
-│   ├── 02_preprocess.py          # Recorte + gradiente (preserva `time`)
-│   ├── 03_feature_engineering.py # Converte _proc.nc em lat/lon/date
-│   ├── 04_train_model.py         # Agrega features, rotula hotspots e treina XGBoost
-│   ├── 05_export_tiles.py        # Aplica o modelo e gera GeoTIFFs
+│   ├── 01_search_download.py     # Busca no Earthdata (usa config)
+│   ├── 02_preprocess.py          # Recorte, conversões, gradientes (preserva `time`)
+│   ├── 03_feature_engineering.py # Tabelas (lat, lon, date, sst, grad, chlor_a, ...)
+│   ├── 04_train_model.py         # Concatena, rotula hotspots, treina XGBoost
+│   ├── 05_export_tiles.py        # Aplica o modelo e exporta GeoTIFFs de probabilidade
 │   ├── utils/                    # load_config, project_root, build_tiles_manifest.py
-│   └── visualization/            # Inspeções (PNG/HTML) e comparações MODIS × modelo (--date)
+│   └── visualization/            # Inspeções rápidas + comparações (PNG/Plotly)
 │
-├── app/                          # Mapa Leaflet (dropdown carrega o manifest JSON)
-├── docs/                         # Briefing, visão geral e guia rápido da equipe
+├── app/                          # Mapa Leaflet (lê o manifest JSON de tiles)
+├── docs/                         # Briefing, visão geral/melhorias, guia rápido
 └── tag/                          # Conceito de tag embarcada
 ```
 ---
 
-## 🧰 Pipeline
-- **01_search_download.py** – faz login no Earthdata (`~/.netrc`) e baixa os granules conforme `config.yaml`.
-- **02_preprocess.py** – recorta pela bbox, converte SST para °C, calcula gradiente (mantém dimensão temporal) e salva `_proc.nc`.
-- **03_feature_engineering.py** – gera tabelas (lat, lon, date, sst, sst_gradient) em `data/features/`.
-- **04_train_model.py** – concatena as tabelas, rotula hotspots (top-N% gradiente por data), treina XGBoost e grava `dataset.csv`, `model_xgb.pkl`, `metrics.json`.
-- **05_export_tiles.py** – aplica o modelo a cada `_proc.nc` e exporta GeoTIFFs `hotspots_probability_*.tif` em `data/tiles/`.
-- **scripts/utils/build_tiles_manifest.py** – produz `data/tiles/tiles_manifest.json`, alimentando o app Leaflet.
-- **visualization/** – scripts para verificações rápidas (PNG/HTML) e comparações MODIS / SST / gradiente / probabilidade (incluindo dashboards interativos).
+## 🧰 Pipeline (de ponta a ponta)
+1. **01_search_download.py** – login Earthdata (`~/.netrc`) e download dos *granules* configurados (SST + MODIS CHL; PACE/SWOT/ECCO quando habilitados).  
+2. **02_preprocess.py** – recorte da BBox, conversão para °C (SST), cálculo de **gradiente**, *masks* e exportação `_proc.nc` (inclui `chlor_a` quando disponível).  
+3. **03_feature_engineering.py** – gera CSVs por data com `lat`, `lon`, `date`, `sst`, `sst_gradient`, `chlor_a` (+ campos PACE/SWOT/ECCO quando habilitados).  
+4. **04_train_model.py** – agrega features, rotula **hotspots** (ex.: top‑N% do gradiente) e treina **XGBoost** (`dataset.csv`, `model_xgb.pkl`, `metrics.json`).  
 
 ---
 
@@ -72,85 +74,39 @@ Tubaroes_do_Espaco/
 | **SST (MUR)** | 🌡️ Temperatura da Superfície do Mar | ~1 km / diário | Define preferências térmicas e frentes oceânicas (hotspots de caça). | Base principal para identificar frentes térmicas. |
 | **MODIS L3 CHL** | 🟢 Clorofila-a (biomassa fitoplâncton) | ~4 km / diário-semanal | Indica produtividade biológica (cadeia alimentar: plâncton → peixes → tubarões). | Variável biológica chave para prever disponibilidade de presas. |
 | **PACE OCI** | 🌈 Composição do fitoplâncton (cores do oceano) | ~1 km / diário | Diferencia tipos de plâncton (nutritivos vs tóxicos). | Enriquecimento do modelo, explicando qualidade da comida disponível. |
-| **ECCO (u/v correntes)** | 🌀 Correntes oceânicas (u/v) | ~10–20 km / horário-diário | Transporta nutrientes e presas; tubarões usam correntes para migração. | Adiciona dinâmica ao modelo (não só condição estática). |
 | **SWOT** | 🌊 Topografia da superfície / Redemoinhos | ~1 km / repetição 21 dias | Detecta estruturas de mesoescala (eddies) que concentram alimento. | Identifica hotspots estruturais que atraem predadores. |
 
----
-
-## 🌍 Fontes Oficiais dos Dados
-
-Para garantir reprodutibilidade, aqui estão os pontos oficiais de acesso:
-
-- **🌡️ MUR SST (Sea Surface Temperature)**  
-  Dataset: *MUR-JPL-L4-GLOB-v4.1*  
-  [🔗 Navegar nos arquivos (PO.DAAC / Earthdata)](https://cmr.earthdata.nasa.gov/virtual-directory/collections/C1996881146-POCLOUD)  
-
-- **🌱 MODIS L3 Clorofila (Chlorophyll-a, NRT)**  
-  Dataset: *MODIS-Aqua Level 3 Chl-a*  
-  🔗 [link oficial em breve]
-
-- **🌊 ECCO (correntes oceânicas u/v)**  
-  Dataset: *ECCO Ocean Circulation*  
-  🔗 [link oficial em breve]
-
-- **🔬 PACE OCI (Ocean Color Instrument)**  
-  Dataset: *PACE OCI*  
-  🔗 [link oficial em breve]
-
-- **📡 SWOT (Sea Surface Height)**  
-  Dataset: *SWOT L2/L3*  
-  🔗 [link oficial em breve]
+> **Tradução prática:** PACE/MODIS mostram **onde nasce o alimento**; SST/gradiente indica **onde ele se concentra**; SWOT mostra **como ele é empurrado/retido**; o modelo converte esses sinais em **hotspots**.
 
 ---
 
-## 🛠️ Stack Tecnológica
-
-- **Linguagem**: Python 3.13  
-- **Bibliotecas**: xarray, numpy, pandas, scikit-learn, xgboost, matplotlib, seaborn, plotly, earthaccess  
-- **Visualização**: Leaflet / MapLibre (web app interativo)  
-- **Dados NASA**: PACE, SWOT, ECCO, MODIS, MUR SST  
-
-## 🌐 Cadeia trófica (inspiração)
+## 🌐 Cadeia trófica (inspiração conceitual)
 ```
 🌱 Fitoplâncton (PACE / MODIS)
    ↓
-🐟 Peixes (correntes ECCO)
+🐟 Peixes (correntes)
    ↓
-🌀 Frentes / redemoinhos (SWOT + gradiente SST)
+🌀 Frentes/Redemoinhos (SWOT + gradiente SST)
    ↓
-🦈 Tubarões (modelados via ML)
-```
-
----
-
-## 📊 Pipeline do Projeto
-
-```mermaid
-flowchart LR
-    A[Dados NASA] --> B[01 Download]
-    B --> C[02 Pré-processamento]
-    C --> D[03 Feature Engineering]
-    D --> E[04 Treinamento ML]
-    E --> F[05 Exportação Maps]
-    F --> G[Web App Interativo]
+🦈 Tubarões (probabilidade via ML)
 ```
 
 ---
 
 ## ⚙️ Configuração do ambiente
 ```powershell
-# 1. Ambiente virtual
+# Ambiente virtual
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2. Credenciais Earthdata (~/.netrc)
-#   machine urs.earthdata.nasa.gov
-#   login SEU_USUARIO
-#   password SUA_SENHA
+# Credenciais Earthdata (~/.netrc)
+machine urs.earthdata.nasa.gov
+login SEU_USUARIO
+password SUA_SENHA
 ```
 
-## ▶️ Como rodar a pipeline
+## ▶️ Executando a pipeline
 ```powershell
 python scripts/01_search_download.py
 python scripts/02_preprocess.py
@@ -159,42 +115,66 @@ python scripts/04_train_model.py
 python scripts/05_export_tiles.py
 python scripts/utils/build_tiles_manifest.py
 ```
-
-## 🗺️ App web (Leaflet)
-```powershell
-python -m http.server 8000
-# abrir http://localhost:8000/app/index.html
-```
-Dropdown lista as datas do manifest e o botão alterna a escala (viridis ⇄ inferno).
-
 ---
 
 ## 📸 Visualizações úteis
-- `scripts/visualization/compare_probability_vs_truecolor.py --date YYYY-MM-DD`
-- `scripts/visualization/compare_probability_vs_truecolor_interactive.py --date YYYY-MM-DD`
+- `scripts/visualization/compare_probability_vs_truecolor.py --date YYYY-MM-DD`  
+- `scripts/visualization/compare_probability_vs_truecolor_interactive.py --date YYYY-MM-DD`  
 - `scripts/visualization/compare_side_by_side_slider.py`
 
 ---
 
-### Status (2025-09-30)
-- ✅ Download (SST MUR, intervalo configurável)
-- ✅ Pré-processamento (gradiente com `xarray`, preservando `time`)
-- ✅ Feature engineering tabular
-- ✅ Treino baseline (XGBoost, métricas em `data/processed/metrics.json`)
-- ✅ Export GeoTIFFs + manifest (`data/tiles/*.tif`, `tiles_manifest.json`)
-- 🟡 Integração de variáveis adicionais (CHL, correntes, SWOT)
-- ⚪ Tag eletrônica (design conceitual, falta protótipo)
+## 📦 Saídas e produtos gerados
+Nosso pipeline conecta sensores orbitais, modelagem e storytelling. Principais artefatos:
 
-## 📌 Próximos passos
-- Integrar CHL (MODIS/PACE), correntes (ECCO) e SWOT ao pipeline (02→03→04).
-- Refinar o rótulo com dados de presença/ausência reais (telemetria, pesca, observações).
-- Adicionar retries/cache nos downloads MODIS (WMS) e testes automatizados (arquivos de amostra).
-- Evoluir o conceito da tag para protótipo físico.
+- **`data/features/*.csv`** – tabelas diárias usadas nos modelos. Cada linha (um ponto `lat`, `lon`) inclui, por exemplo:  
+  - `sst`, `sst_gradient`: temperatura da superfície (MUR) e intensidade da frente térmica;  
+  - `chlor_a_modis`, `chlor_a_pace`, `chlor_a`: clorofila‑a por MODIS Aqua (L3) e PACE OCI;  
+  - `ssh_swot`, `ssh_swot_gradient`, `swot_mask`: topografia e gradiente (SWOT) destacando redemoinhos/estruturas;  
+  - `moana_prochlorococcus`, `moana_synechococcus`, `moana_picoeuk`: abundâncias celulares (PACE/MOANA);  
+  - `moana_total_cells`, `moana_picoeuk_share`, `moana_cyanobacteria_share`, `moana_diversity_index`: métricas derivadas de **biomassa**, **composição** e **diversidade** fitoplanctônica.  
+  > *Obs.: os nomes exatos podem variar conforme a versão do produto; mantemos mapeamento no `config.yaml`.*
+
+- **`data/processed/`** – intermediários e resultados de ML:  
+  - `_proc.nc` de SST, CHL, PACE/MOANA e SWOT (recortes comprimidos);  
+  - `dataset.csv`, `model_xgb.pkl`, `metrics.json` (AUC, *Average Precision*).
+
+- **`data/predictions/*.csv`** – saídas do modelo heurístico por espécie (quando habilitado):  
+  - `habitat_score` (0–1): combina gradiente térmico, temperatura, clorofila, estrutura SWOT e métricas MOANA;  
+  - `habitat_class` (poor/moderate/good/excellent);  
+  - `is_hotspot` (top 10% dos pixels);  
+  - PNGs em `data/predictions/*_map.png` e `*_comparative_map.png` com hotspots marcados.
+
+- **`data/viz/compare`** e **`data/viz/moana`** – painéis PNG gerados pelos scripts de visualização:  
+  - `compare_truecolor_moana_YYYY-MM-DD.png`: MODIS True Color + camadas MOANA;  
+  - `compare_all_variables_YYYY-MM-DD.png`: True Color, SST, gradiente, clorofila, SWOT e *score* de fitoplâncton.
+
+### Por que cada variável importa?
+| Variável | Origem | Papel ecológico |
+|---|---|---|
+| `sst`, `sst_gradient` | MUR SST (GHRSST) | Identificam **frentes térmicas** que concentram presas e oxigênio. |
+| `chlor_a_*` | MODIS Aqua & PACE OCI | **Produtividade primária** (onde a base da cadeia está ativa). |
+| `ssh_swot`, `ssh_swot_gradient` | SWOT | **Redemoinhos e meandros** que agregam nutrientes/presas. |
+| `moana_*` (Prochlorococcus, Synechococcus, picoeuk.) | PACE OCI / MOANA | Diferenciam **tipos de fitoplâncton** (qualidade nutricional). |
+| `moana_total_cells`, `moana_picoeuk_share`, `moana_diversity_index` | Derivadas MOANA | **Biomassa**, **proporção** e **diversidade** (resiliência). |
+| `habitat_score`, `habitat_class`, `is_hotspot` | Modelo heurístico/ML | Tradução dos sinais ambientais em **decisão prática** para conservação e planejamento. |
 
 ---
 
-## 🌐 Storytelling Final
+## 🛰️ Missões e satélites utilizados
+- **MUR SST (GHRSST, JPL/MEaSUREs)** – temperaturas diárias de alta resolução.  
+- **MODIS Aqua (NASA EOS PM)** – clorofila‑a histórica (L3) para monitorar produtividade.  
+- **PACE OCI (Plankton, Aerosols, Clouds and Ecosystems)** – espectrorradiometria para distinguir **comunidades fitoplanctônicas** (MOANA/PFTs).  
+- **SWOT (Surface Water and Ocean Topography)** – altimetria de alta resolução para **frentes/redemoinhos**.  
 
-Tubarões são **embaixadores da saúde oceânica**.  
-Este projeto traduz a ciência de satélites em uma **ferramenta prática de conservação**, unindo tecnologia espacial e impacto humano.  
-Com os dados da NASA, podemos **entender, prever e proteger** os maiores predadores do oceano — e, ao mesmo tempo, **preservar o equilíbrio da vida marinha**.  
+> Cada missão cobre uma peça da cadeia trófica: PACE/MODIS mostram **a oferta**; SWOT mostra **a física que redistribui**; MUR SST mostra **as pistas**; o modelo junta tudo em **mapas acionáveis**.
+---
+
+## 🧵 Storytelling
+Tubarões são **indicadores de saúde oceânica**. Nossa pipeline transforma **dados de satélite** em **mapas de decisão**; a **tag eletrônica** fecha o ciclo com validação em campo; e os **dashboards** contam a história, do espaço até o mar, de uma forma que qualquer pessoa consegue acompanhar.
+
+---
+
+### Contatos e créditos
+Time **Iron Shark** – NASA Space Apps 2025.  
+Agradecimentos às equipes das missões **PACE, SWOT, MODIS, GHRSST/MUR** e ao projeto **ECCO** pelos dados abertos.

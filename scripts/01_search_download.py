@@ -48,6 +48,7 @@ MODIS_SHORT = CFG.get("datasets", {}).get("modis_l3_chl_short_name")
 MODIS_PREF_RES = CFG.get("datasets", {}).get("modis_resolution", "4km")
 
 PACE_SHORT = CFG.get("datasets", {}).get("pace_l3_chl_short_name")
+PACE_MOANA_SHORT = CFG.get("datasets", {}).get("pace_l4_moana_short_name")
 PACE_RES = CFG.get("datasets", {}).get("pace_resolution", "4km")
 PACE_TYPE = CFG.get("datasets", {}).get("pace_product_type", "DAY")
 PACE_REALTIME = CFG.get("datasets", {}).get("pace_realtime", "NRT")
@@ -91,7 +92,17 @@ def expected_renamed_name(href: str, tag_hint: str) -> str | None:
         if m:
             return f"{m.group(1)}_CHL-MODIS.nc"
 
-        # PACE
+    # PACE (CHL/PFT/MOANA)
+    if "moana" in fname or tag_hint == "pace_moana":
+        parts = fname.split(".")
+        if len(parts) >= 2 and re.match(r"20\d{6}", parts[1]):
+            date_token = parts[1]
+            return f"{date_token}_MOANA-PACE.nc"
+    if "pft" in fname:
+        parts = fname.split(".")
+        if len(parts) >= 2 and re.match(r"20\d{6}", parts[1]):
+            date_token = parts[1]
+            return f"{date_token}_PFT-PACE.nc"
     if "pace" in fname or "oci" in fname or tag_hint == "pace":
         parts = fname.split(".")
         if len(parts) >= 2 and re.match(r"20\d{6}", parts[1]):
@@ -166,6 +177,12 @@ def rename_downloaded_files(downloaded_paths: List[Path], tag_hint: str = "") ->
         if "sstfnd" in name_low or "mur" in name_low or "ghrsst" in name_low or tag_hint == "sst":
             tag = "SSTfnd-MUR"
             days_offset = -1
+        elif "moana" in name_low or tag_hint == "pace_moana":
+            tag = "MOANA-PACE"
+            days_offset = 0
+        elif "pft" in name_low:
+            tag = "PFT-PACE"
+            days_offset = 0
         elif "pace" in name_low or "oci" in name_low or tag_hint == "pace":
             tag = "CHL-PACE"
             days_offset = 0
@@ -205,7 +222,7 @@ def rename_downloaded_files(downloaded_paths: List[Path], tag_hint: str = "") ->
             if "aqua_modis" in name_low or tag == "CHL-MODIS":
                 parts = src.name.split(".")
                 date_token = parts[1] if len(parts) >= 2 else src.name[:8]
-            elif "pace" in name_low or "oci" in name_low or tag == "CHL-PACE":
+            elif "pace" in name_low or "oci" in name_low or tag in {"CHL-PACE", "MOANA-PACE"}:
                 parts = src.name.split(".")
                 date_token = parts[1] if len(parts) >= 2 else src.name[:8]
             else:
@@ -304,8 +321,8 @@ def find_and_download(
         print(f"[earthaccess] MODIS ({MODIS_PREF_RES}) datas mantidas: {sorted(kept_dates)}")
         results = filtered
 
-    # Filtro PACE
-    if short_name and short_name == PACE_SHORT:
+    # Filtro PACE (CHL / PFT / MOANA)
+    if short_name and short_name in {PACE_SHORT, PACE_MOANA_SHORT}:
         filtered = []
         kept_dates = []
         for granule in results:
@@ -424,6 +441,20 @@ def main() -> None:
         )
         total_downloaded += count
 
+    # PACE MOANA
+    print("\n" + "="*60)
+    print("BAIXANDO MOANA (PACE OCI)...")
+    print("="*60)
+    pace_moana_short = datasets.get("pace_l4_moana_short_name")
+    if pace_moana_short:
+        count = find_and_download(
+            short_name=pace_moana_short,
+            days_offset_for_query=0,
+            subdir="pace_moana",
+            tag_hint="pace_moana",
+        )
+        total_downloaded += count
+
     # SWOT
     print("\n" + "="*60)
     print("BAIXANDO SSH (SWOT)...")
@@ -446,3 +477,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+

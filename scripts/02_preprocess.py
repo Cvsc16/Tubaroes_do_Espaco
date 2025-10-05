@@ -11,6 +11,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+import re
 import numpy as np
 import xarray as xr
 from typing import Iterable, Dict, List
@@ -46,6 +47,11 @@ LAT_CANDIDATES = ("lat", "latitude")
 LON_CANDIDATES = ("lon", "longitude")
 
 # ============== helpers gerais ==============
+
+def sanitize_var_name(name: str) -> str:
+    sanitized = re.sub(r"[^a-z0-9]+", "_", name.lower())
+    return sanitized.strip("_") or "pft"
+
 
 def detect_coordinate(data: xr.DataArray, candidates: Iterable[str]) -> str:
     for name in candidates:
@@ -186,7 +192,33 @@ def preprocess_file(file_path: Path):
         out_path = PROC_DIR / (file_path.stem + "_proc.nc")
         encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
         out.to_netcdf(out_path, encoding=encoding, compute=True)
-        print(f"✅ Arquivo processado salvo em {out_path}")
+        print(f"[ok] Arquivo processado salvo em {out_path}")
+        return out_path
+
+    if "MOANA-PACE" in file_path.name:
+        data_vars = {}
+        with xr.open_dataset(file_path) as ds:
+            for var_name, da in ds.data_vars.items():
+                if da.ndim < 2:
+                    continue
+                try:
+                    lat_name = detect_coordinate(da, LAT_CANDIDATES)
+                    lon_name = detect_coordinate(da, LON_CANDIDATES)
+                except KeyError:
+                    continue
+                field = clip_bbox(da, lat_name, lon_name)
+                sanitized = f"moana_{sanitize_var_name(var_name)}"
+                data_vars[sanitized] = field.astype(np.float32)
+
+        if not data_vars:
+            print(f"[warn] Nenhum dado MOANA valido em {file_path.name}")
+            return None
+
+        out = xr.Dataset(data_vars)
+        out_path = PROC_DIR / (file_path.stem + "_proc.nc")
+        encoding = {var: {"zlib": True, "complevel": 4} for var in out.data_vars}
+        out.to_netcdf(out_path, encoding=encoding, compute=True)
+        print(f"[ok] Arquivo processado salvo em {out_path}")
         return out_path
 
     if "SSH-SWOT" in file_path.name:

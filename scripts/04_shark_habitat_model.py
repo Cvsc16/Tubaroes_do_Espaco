@@ -1,28 +1,26 @@
-#!/usr/bin/env python3
-"""Modelo heurístico de adequabilidade de habitat para tubarões.
+﻿#!/usr/bin/env python3
+"""Modelo heuristico de habitat incorporando variaveis MOANA.
 
-O objetivo é gerar mapas rápidos, explicáveis e por espécie a partir das
-features pré-processadas, agora utilizando também métricas SWOT.
-
-Entrada: arquivos CSV em data/features/
-Saídas: CSVs, mapas individuais/comparativos e relatório JSON.
+Gera previsoes rapidas por especie a partir dos CSVs em data/features/. O
+score pondera gradiente termico, temperatura, clorofila, estrutura SWOT e
+biomassa/composicao de fitoplancton derivada do PACE-MOANA.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
-import json
+from typing import Dict, Iterable, Tuple
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Ajuste de paths / config carregada do projeto
+# Localizacao do projeto
 # ---------------------------------------------------------------------------
 _THIS_FILE = Path(__file__).resolve()
 for parent in _THIS_FILE.parents:
@@ -43,58 +41,65 @@ OUTPUT_DIR = ROOT / "data" / "predictions"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CFG = load_config()
-
+EPS = 1e-9
 
 # ---------------------------------------------------------------------------
-# Constantes e heurísticas
+# Pesos das componentes do score
 # ---------------------------------------------------------------------------
-COMPONENT_WEIGHTS = {
-    "thermal_gradient": 0.30,
-    "chlorophyll": 0.25,
-    "temperature": 0.25,
-    "swot_structure": 0.12,
-    "swot_polarity": 0.08,
+COMPONENT_WEIGHTS: Dict[str, float] = {
+    "thermal_gradient": 0.23,
+    "temperature": 0.18,
+    "chlorophyll": 0.15,
+    "moana_productivity": 0.18,
+    "moana_diversity": 0.10,
+    "moana_composition": 0.08,
+    "swot_structure": 0.05,
+    "swot_polarity": 0.03,
 }
 
-SPECIES_PREFS = {
+# ---------------------------------------------------------------------------
+# Preferencias simplificadas por especie
+# ---------------------------------------------------------------------------
+SPECIES_PREFS: Dict[str, Dict[str, object]] = {
     "blue_shark": {
         "temperature_zones": [
-            (None, 12, 0.1),
-            (12, 15, 0.6),
-            (15, 24, 1.0),
-            (24, 28, 0.7),
-            (28, None, 0.3),
+            (None, 12.0, 0.1),
+            (12.0, 15.0, 0.6),
+            (15.0, 24.0, 1.0),
+            (24.0, 28.0, 0.7),
+            (28.0, None, 0.3),
         ],
         "ssh_preference": "warm",
+        "pico_ratio_range": (0.12, 0.28, 0.5, 0.72),
     },
     "white_shark": {
         "temperature_zones": [
-            (None, 10, 0.1),
-            (10, 14, 0.6),
-            (14, 20, 1.0),
-            (20, 24, 0.8),
-            (24, None, 0.4),
+            (None, 10.0, 0.1),
+            (10.0, 14.0, 0.6),
+            (14.0, 20.0, 1.0),
+            (20.0, 24.0, 0.8),
+            (24.0, None, 0.4),
         ],
         "ssh_preference": "cold",
+        "pico_ratio_range": (0.18, 0.36, 0.62, 0.82),
     },
     "tiger_shark": {
         "temperature_zones": [
-            (None, 20, 0.2),
-            (20, 23, 0.6),
-            (23, 28, 1.0),
-            (28, 30, 0.6),
-            (30, None, 0.3),
+            (None, 20.0, 0.2),
+            (20.0, 23.0, 0.6),
+            (23.0, 28.0, 1.0),
+            (28.0, 30.0, 0.6),
+            (30.0, None, 0.3),
         ],
         "ssh_preference": "warm",
+        "pico_ratio_range": (0.24, 0.46, 0.78, 0.94),
     },
 }
 
-EPS = 1e-6
-
-
 # ---------------------------------------------------------------------------
-# Helpers de feature engineering
+# Funcoes auxiliares
 # ---------------------------------------------------------------------------
+
 def _coalesce_chlorophyll(df: pd.DataFrame) -> pd.Series:
     sources: list[pd.Series] = []
     if "chlor_a" in df.columns:
@@ -105,8 +110,21 @@ def _coalesce_chlorophyll(df: pd.DataFrame) -> pd.Series:
     if not sources:
         return pd.Series(np.nan, index=df.index, dtype="float32")
     stacked = pd.concat(sources, axis=1)
-    combined = stacked.mean(axis=1, skipna=True)
-    return combined.astype("float32")
+    return stacked.mean(axis=1, skipna=True).astype("float32")
+
+
+def _piecewise_ratio(values: np.ndarray, low: float, opt_low: float, opt_high: float, high: float) -> np.ndarray:
+    score = np.zeros_like(values, dtype=float)
+    with np.errstate(invalid="ignore"):
+        score = np.where(values <= low, 0.0, score)
+        mask = (values > low) & (values < opt_low)
+        score = np.where(mask, (values - low) / (opt_low - low + EPS), score)
+        mask = (values >= opt_low) & (values <= opt_high)
+        score = np.where(mask, 1.0, score)
+        mask = (values > opt_high) & (values < high)
+        score = np.where(mask, 1.0 - (values - opt_high) / (high - opt_high + EPS), score)
+        score = np.where(values >= high, 0.0, score)
+    return np.clip(score, 0.0, 1.0)
 
 
 def score_thermal_gradient(grad: pd.Series) -> pd.Series:
@@ -178,8 +196,8 @@ def score_swot_structure(df: pd.DataFrame) -> pd.Series:
         return pd.Series(np.nan, index=df.index, dtype=float)
 
     arr = grad_abs.to_numpy(dtype=float)
-    mask = np.isfinite(arr)
     score = np.full_like(arr, np.nan, dtype=float)
+    mask = np.isfinite(arr)
     if not mask.any():
         return pd.Series(score, index=df.index)
 
@@ -196,8 +214,8 @@ def score_swot_structure(df: pd.DataFrame) -> pd.Series:
 
 
 def score_swot_polarity(ssh: pd.Series | None, species: str) -> pd.Series:
-    if ssh is None or ssh.empty:
-        return pd.Series(np.nan, index=ssh.index if ssh is not None else None, dtype=float)
+    if ssh is None:
+        return pd.Series(np.nan, index=None, dtype=float)
 
     arr = ssh.to_numpy(dtype=float)
     score = np.full_like(arr, np.nan, dtype=float)
@@ -224,23 +242,143 @@ def score_swot_polarity(ssh: pd.Series | None, species: str) -> pd.Series:
     score[mask] = component
     return pd.Series(score, index=ssh.index)
 
+# ---------------------------------------------------------------------------
+# MOANA: biomassa e composicao
+# ---------------------------------------------------------------------------
 
-def compute_habitat_scores(df: pd.DataFrame, species: str) -> pd.Series:
+
+def compute_moana_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    cols = [col for col in df.columns if col.startswith("moana_")]
+    if not cols:
+        return pd.DataFrame(index=df.index)
+
+    data = df[cols].to_numpy(dtype=float)
+    data[~np.isfinite(data)] = np.nan
+    total = np.nansum(data, axis=1)
+
+    shares = np.zeros_like(data, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shares = data / (total[:, None] + EPS)
+
+    pico_idx = cols.index("moana_picoeuk_moana") if "moana_picoeuk_moana" in cols else None
+    proc_idx = cols.index("moana_prococcus_moana") if "moana_prococcus_moana" in cols else None
+    syn_idx = cols.index("moana_syncoccus_moana") if "moana_syncoccus_moana" in cols else None
+
+    pico_share = shares[:, pico_idx] if pico_idx is not None else np.full_like(total, np.nan)
+    cyano_share = np.zeros_like(total, dtype=float)
+    if proc_idx is not None:
+        cyano_share += np.nan_to_num(shares[:, proc_idx], nan=0.0)
+    if syn_idx is not None:
+        cyano_share += np.nan_to_num(shares[:, syn_idx], nan=0.0)
+
+    with np.errstate(invalid="ignore"):
+        entropy = -np.nansum(shares * np.log(shares + EPS), axis=1)
+    max_entropy = np.log(len(cols)) if cols else 1.0
+    diversity = np.clip(entropy / (max_entropy + EPS), 0.0, 1.0)
+
+    metrics = pd.DataFrame(
+        {
+            "moana_total_cells": total.astype("float32"),
+            "moana_picoeuk_share": pico_share.astype("float32"),
+            "moana_cyanobacteria_share": cyano_share.astype("float32"),
+            "moana_diversity_index": diversity.astype("float32"),
+        },
+        index=df.index,
+    )
+    return metrics
+
+
+def score_moana_productivity(total_cells: pd.Series) -> pd.Series:
+    arr = total_cells.to_numpy(dtype=float)
+    score = np.full_like(arr, np.nan, dtype=float)
+    mask = np.isfinite(arr) & (arr > 0)
+    if not mask.any():
+        return pd.Series(score, index=total_cells.index)
+
+    log_vals = np.log10(arr[mask] + EPS)
+    p40, p90 = np.nanpercentile(log_vals, [40.0, 90.0])
+    if p90 - p40 < EPS:
+        norm = np.zeros_like(log_vals)
+    else:
+        norm = (log_vals - p40) / (p90 - p40)
+    norm = np.clip(norm, 0.0, 1.0)
+
+    score[mask] = norm
+    return pd.Series(score, index=total_cells.index)
+
+
+def score_moana_diversity(diversity: pd.Series) -> pd.Series:
+    arr = diversity.to_numpy(dtype=float)
+    score = np.full_like(arr, np.nan, dtype=float)
+    mask = np.isfinite(arr)
+    if not mask.any():
+        return pd.Series(score, index=diversity.index)
+
+    vals = arr[mask]
+    vmin = np.nanpercentile(vals, 25.0)
+    vmax = np.nanpercentile(vals, 90.0)
+    if vmax - vmin < EPS:
+        norm = np.zeros_like(vals)
+    else:
+        norm = (vals - vmin) / (vmax - vmin)
+    norm = np.clip(norm, 0.0, 1.0)
+
+    score[mask] = norm
+    return pd.Series(score, index=diversity.index)
+
+
+def score_moana_composition(pico_share: pd.Series, species: str) -> pd.Series:
+    prefs = SPECIES_PREFS.get(species, SPECIES_PREFS["blue_shark"])
+    arr = pico_share.to_numpy(dtype=float)
+    score = np.full_like(arr, np.nan, dtype=float)
+    mask = np.isfinite(arr)
+    if not mask.any():
+        return pd.Series(score, index=pico_share.index)
+
+    low, opt_low, opt_high, high = prefs.get("pico_ratio_range", (0.2, 0.4, 0.6, 0.8))
+    score[mask] = _piecewise_ratio(arr[mask], low, opt_low, opt_high, high)
+    return pd.Series(score, index=pico_share.index)
+
+# ---------------------------------------------------------------------------
+# Score agregado
+# ---------------------------------------------------------------------------
+
+def compute_habitat_scores(df: pd.DataFrame, species: str, moana_metrics: pd.DataFrame | None) -> pd.Series:
     chlor = _coalesce_chlorophyll(df)
     components = {
         "thermal_gradient": score_thermal_gradient(df.get("sst_gradient", pd.Series(index=df.index))),
-        "chlorophyll": score_chlorophyll(chlor),
         "temperature": score_temperature(df.get("sst", pd.Series(index=df.index)), species),
+        "chlorophyll": score_chlorophyll(chlor),
         "swot_structure": score_swot_structure(df),
         "swot_polarity": score_swot_polarity(df.get("ssh_swot"), species),
     }
+
+    if moana_metrics is None or moana_metrics.empty:
+        moana_metrics = pd.DataFrame(index=df.index)
+
+    if "moana_total_cells" in moana_metrics:
+        components["moana_productivity"] = score_moana_productivity(moana_metrics["moana_total_cells"])
+    else:
+        components["moana_productivity"] = pd.Series(np.nan, index=df.index)
+
+    if "moana_diversity_index" in moana_metrics:
+        components["moana_diversity"] = score_moana_diversity(moana_metrics["moana_diversity_index"])
+    else:
+        components["moana_diversity"] = pd.Series(np.nan, index=df.index)
+
+    if "moana_picoeuk_share" in moana_metrics:
+        components["moana_composition"] = score_moana_composition(moana_metrics["moana_picoeuk_share"], species)
+    else:
+        components["moana_composition"] = pd.Series(np.nan, index=df.index)
 
     weights_sum = np.zeros(len(df), dtype=float)
     total = np.zeros(len(df), dtype=float)
 
     for name, series in components.items():
         arr = series.to_numpy(dtype=float)
-        weight = COMPONENT_WEIGHTS[name]
+        weight = COMPONENT_WEIGHTS.get(name, 0.0)
+        if weight <= 0.0:
+            continue
         valid = np.isfinite(arr)
         if not valid.any():
             continue
@@ -253,24 +391,26 @@ def compute_habitat_scores(df: pd.DataFrame, species: str) -> pd.Series:
     scores = np.clip(scores, 0.0, 1.0)
     return pd.Series(scores, index=df.index)
 
+# ---------------------------------------------------------------------------
+# Processamento por arquivo / especie
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Processamento por arquivo / espécie
-# ---------------------------------------------------------------------------
 def process_features_file(file_path: Path, species: str) -> pd.DataFrame:
-    """Processa um CSV de features e calcula scores por espécie."""
-
     print(f"Processando {file_path.name} ({species})...")
     df = pd.read_csv(file_path)
     if df.empty:
-        print(f"[warn] {file_path.name} está vazio")
+        print(f"[warn] {file_path.name} vazio")
         return pd.DataFrame()
 
-    df["habitat_score"] = compute_habitat_scores(df, species)
+    moana_metrics = compute_moana_metrics(df)
+    for col in moana_metrics.columns:
+        df[col] = moana_metrics[col]
+
+    df["habitat_score"] = compute_habitat_scores(df, species, moana_metrics)
 
     df["habitat_class"] = pd.cut(
         df["habitat_score"],
-        bins=[0, 0.3, 0.6, 0.8, 1.0],
+        bins=[0.0, 0.3, 0.6, 0.8, 1.0],
         labels=["poor", "moderate", "good", "excellent"],
         include_lowest=True,
     )
@@ -282,6 +422,9 @@ def process_features_file(file_path: Path, species: str) -> pd.DataFrame:
 
     return df
 
+# ---------------------------------------------------------------------------
+# Visualizacoes
+# ---------------------------------------------------------------------------
 
 def create_habitat_map(df: pd.DataFrame, date_str: str, output_path: Path, title: str) -> None:
     if df.empty:
@@ -306,8 +449,8 @@ def create_habitat_map(df: pd.DataFrame, date_str: str, output_path: Path, title
         c=df["habitat_score"],
         s=1,
         cmap="RdYlGn",
-        vmin=0,
-        vmax=1,
+        vmin=0.0,
+        vmax=1.0,
         alpha=0.6,
         transform=ccrs.PlateCarree(),
     )
@@ -333,7 +476,7 @@ def create_habitat_map(df: pd.DataFrame, date_str: str, output_path: Path, title
     plt.close()
 
 
-def create_comparative_map(dfs: dict[str, pd.DataFrame], date_str: str, output_path: Path) -> None:
+def create_comparative_map(dfs: Dict[str, pd.DataFrame], date_str: str, output_path: Path) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), subplot_kw={"projection": ccrs.PlateCarree()})
     titles = {
         "white_shark": "White Shark",
@@ -360,8 +503,8 @@ def create_comparative_map(dfs: dict[str, pd.DataFrame], date_str: str, output_p
             c=df["habitat_score"],
             s=1,
             cmap="RdYlGn",
-            vmin=0,
-            vmax=1,
+            vmin=0.0,
+            vmax=1.0,
             alpha=0.6,
             transform=ccrs.PlateCarree(),
         )
@@ -388,24 +531,35 @@ def create_comparative_map(dfs: dict[str, pd.DataFrame], date_str: str, output_p
     plt.close()
     print(f"Mapa comparativo salvo em {output_path}")
 
+# ---------------------------------------------------------------------------
+# Relatorio
+# ---------------------------------------------------------------------------
 
-def generate_summary_report(df: pd.DataFrame, date_str: str, species: str) -> dict[str, object]:
-    return {
+def generate_summary_report(df: pd.DataFrame, date_str: str, species: str) -> Dict[str, object]:
+    report = {
         "date": date_str,
         "species": species,
         "total_points": int(len(df)),
         "mean_score": float(df["habitat_score"].mean()),
         "n_hotspots": int(df["is_hotspot"].sum()),
         "habitat_distribution": df["habitat_class"].value_counts().to_dict(),
-        "top_hotspots": df.nlargest(5, "habitat_score")[["lat", "lon", "habitat_score"]]
-        .round({"habitat_score": 3})
-        .to_dict(orient="records"),
+        "mean_moana_total": float(df.get("moana_total_cells", pd.Series(dtype=float)).mean()),
+        "mean_moana_pico_share": float(df.get("moana_picoeuk_share", pd.Series(dtype=float)).mean()),
     }
-
+    top_cols = ["lat", "lon", "habitat_score"]
+    if "moana_total_cells" in df.columns:
+        top_cols.append("moana_total_cells")
+    report["top_hotspots"] = (
+        df.nlargest(5, "habitat_score")[top_cols]
+        .round({"habitat_score": 3})
+        .to_dict(orient="records")
+    )
+    return report
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 def main() -> None:
     files = sorted(FEATURES_DIR.glob("*.csv"))
     if not files:
@@ -417,7 +571,7 @@ def main() -> None:
     for file_path in files:
         date_token = file_path.stem.split("_")[0]
         date_fmt = f"{date_token[:4]}-{date_token[4:6]}-{date_token[6:8]}"
-        dfs_species: dict[str, pd.DataFrame] = {}
+        dfs_species: Dict[str, pd.DataFrame] = {}
 
         print("\n" + "=" * 60)
         print(f"MODELO DE HABITAT -- {date_fmt}")
@@ -439,13 +593,13 @@ def main() -> None:
             all_reports.append(report)
 
             print(f"\n-> {species.replace('_', ' ').title()}")
-            print(f"  Média score: {report['mean_score']:.3f}")
+            print(f"  Media score: {report['mean_score']:.3f}")
             print(
                 f"  Hotspots: {report['n_hotspots']} "
                 f"({(report['n_hotspots'] / max(report['total_points'], 1)) * 100:.1f}%)"
             )
-            for hab_class, count in report["habitat_distribution"].items():
-                print(f"    {hab_class}: {count:,}")
+            if report.get("mean_moana_total") is not None:
+                print(f"  MOANA total medio: {report['mean_moana_total']:.1f} cells/ml")
 
         if dfs_species:
             out_cmp = OUTPUT_DIR / f"{date_token}_comparative_map.png"
@@ -454,7 +608,7 @@ def main() -> None:
     with open(OUTPUT_DIR / "habitat_model_report.json", "w", encoding="utf-8") as handle:
         json.dump(all_reports, handle, indent=2)
 
-    print("\n✔ Processamento concluído!")
+    print("\n[ok] Processamento concluido!")
     print(f"Resultados em: {OUTPUT_DIR}")
 
 
